@@ -1,0 +1,18 @@
+{
+  "dim": 2,
+  "number_of_cells": [64, 256],
+  "lower_bound": [0.0, 0.0],
+  "upper_bound": [6.4e-4, 2.56e-3],
+  "field_bc": ["periodic", "periodic"],
+  "max_steps": 50,
+  "time_step_size": null,
+  "cfl": 0.99,
+  "density": 1e20,
+  "temperature_eV": 1.0,
+  "particle_shape": 1,
+  "current_deposition_algo": "direct",
+  "diag_period": 10,
+  "diag_fields": ["E", "B"],
+  "warpx_max_grid_size": 64,
+  "name": "uniform_plasma"
+}

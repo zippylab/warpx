@@ -42,7 +42,14 @@ from .PSATD import psatd  # noqa
 from .WarpX import warpx  # noqa
 
 # This is a circular import and must happen after the import of libwarpx
-from . import picmi  # noqa  # isort:skip
+#
+# NOTE: importing PICMI pulls in optional dependencies (e.g. periodictable).
+# Keep this import tolerant so lightweight tooling (e.g. input generation)
+# can import `pywarpx` without requiring the full PICMI dependency chain.
+try:
+    from . import picmi  # noqa  # isort:skip
+except ModuleNotFoundError:
+    picmi = None  # type: ignore
 
 
 # intentionally query the value - only set once sim dimension is known

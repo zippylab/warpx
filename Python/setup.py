@@ -74,11 +74,16 @@ picmi_version = dependencies_data.get("version_picmi")
 setup(
     name="pywarpx",
     version=warpx_version,
-    packages=["pywarpx"],
+    packages=["pywarpx", "pywarpx.inputgen"],
     package_dir={"pywarpx": "pywarpx"},
     description="""Wrapper of WarpX""",
     package_data=package_data,
     install_requires=["numpy", f"picmistandard=={picmi_version}", "periodictable"],
     python_requires=">=3.8",  # left for CI, truly ">=3.9"
     zip_safe=False,
+    entry_points={
+        "console_scripts": [
+            "warpx-inputgen=pywarpx.inputgen.cli:main",
+        ]
+    },
 )

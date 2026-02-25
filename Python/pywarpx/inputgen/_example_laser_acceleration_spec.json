@@ -1,0 +1,22 @@
+{
+  "name": "laser_acceleration",
+  "dim": 2,
+  "number_of_cells": [128, 512],
+  "lower_bound": [-2.0e-05, 0.0],
+  "upper_bound": [2.0e-05, 0.0002],
+  "field_bc": ["periodic", "open"],
+  "max_steps": 50,
+  "cfl": 0.99,
+  "plasma_density": 1.0e24,
+  "plasma_zmin": 2.0e-05,
+  "plasma_zmax": 0.00018,
+  "wavelength": 8.0e-07,
+  "a0": 2.0,
+  "waist": 1.5e-05,
+  "duration": 3.0e-14,
+  "focal_position_z": 6.0e-05,
+  "centroid_position_z": 0.0,
+  "particle_shape": "linear",
+  "diag_period": 25,
+  "diag_fields": ["Ex", "Ey", "Ez", "Bx", "By", "Bz"]
+}

@@ -15,6 +15,106 @@
 import atexit
 import os
 import sys
+import glob
+
+# Ensure the local build's shared libraries (e.g., libamrex_2d.so) are discoverable.
+# This is needed when running directly from a source tree without installing
+# pywarpx/amrex into the active environment.
+_this_repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
+_local_build_root = os.path.join(_this_repo_root, "pywarpx")
+
+# 1) Prefer running against an installed Python package layout in `pywarpx/site-packages`.
+#    This contains the compiled `warpx_pybind_*.so` modules and the `amrex` Python package.
+_site_pkgs = os.path.join(_local_build_root, "site-packages")
+if os.path.isdir(_site_pkgs) and _site_pkgs not in sys.path:
+    sys.path.insert(0, _site_pkgs)
+
+# If we're running from a source tree, `pywarpx` is this package (Python/pywarpx).
+# The built extension modules live in `pywarpx/site-packages/pywarpx`, so extend
+# the package search path to find e.g. `pywarpx.warpx_pybind_2d`.
+try:
+    import pywarpx as _pywarpx_pkg
+
+    _pywarpx_ext_pkg = os.path.join(_site_pkgs, "pywarpx")
+    if os.path.isdir(_pywarpx_ext_pkg) and _pywarpx_ext_pkg not in _pywarpx_pkg.__path__:
+        _pywarpx_pkg.__path__.append(_pywarpx_ext_pkg)
+except Exception:
+    pass
+
+# 2) Ensure the local build's shared libraries (e.g., libamrex_2d.so) are discoverable.
+#    Note: changing LD_LIBRARY_PATH *after process start* might not affect the dynamic
+#    loader on all systems.
+if os.path.isdir(_local_build_root) and _local_build_root not in os.environ.get("LD_LIBRARY_PATH", ""):
+    os.environ["LD_LIBRARY_PATH"] = _local_build_root + (
+        ":" + os.environ["LD_LIBRARY_PATH"] if os.environ.get("LD_LIBRARY_PATH") else ""
+    )
+
+# Additionally, pre-load key shared libraries by absolute path so that downstream
+# pybind modules can resolve their DT_NEEDED entries even if LD_LIBRARY_PATH isn't
+# honored after process start.
+try:
+    import ctypes
+
+    # AMReX libraries built alongside WarpX
+    for _cand in ("libamrex_1d.so", "libamrex_2d.so", "libamrex_3d.so", "libamrex.so"):
+        _p = os.path.join(_local_build_root, _cand)
+        if os.path.exists(_p):
+            ctypes.CDLL(_p)
+
+    # ADIOS2: WarpX pybind modules may link against libadios2_cxx11.so.
+    # Prefer an already-configured runtime (e.g. module environment) via LD_LIBRARY_PATH.
+    # As a best-effort fallback, try to locate ADIOS2 libs in common installs.
+    try:
+        _adios2_cands = []
+
+        # 1) If ADIOS2 python package is installed, its shared libs live next to it.
+        try:
+            import adios2  # type: ignore
+
+            _adios2_cands.append(os.path.realpath(os.path.dirname(adios2.__file__)))
+        except Exception:
+            pass
+
+        # 2) Known spack-style install roots on ALCF systems (e.g. Aurora)
+        for _root in (
+            "/opt/aurora",
+            "/lus/flare/projects/catalyst/world_shared",
+        ):
+            if os.path.isdir(_root):
+                # Keep this search shallow-ish by walking only a couple levels of directories.
+                for _sub in os.listdir(_root):
+                    _p = os.path.join(_root, _sub)
+                    if os.path.isdir(_p) and "adios2" in _sub:
+                        _adios2_cands.append(_p)
+
+        # If any candidate is actually a libdir, add it.
+        for _d in list(dict.fromkeys(_adios2_cands)):
+            if os.path.isdir(_d) and _d not in os.environ.get("LD_LIBRARY_PATH", ""):
+                os.environ["LD_LIBRARY_PATH"] = _d + (
+                    ":" + os.environ["LD_LIBRARY_PATH"] if os.environ.get("LD_LIBRARY_PATH") else ""
+                )
+
+        # Try load from LD_LIBRARY_PATH via soname first.
+        try:
+            ctypes.CDLL("libadios2_cxx11.so.2.10")
+        except Exception:
+            # Try a direct filesystem search for a matching soname and load by absolute path.
+            _found = []
+            for _base in ("/opt/aurora",):
+                if os.path.isdir(_base):
+                    for _p in glob.glob(os.path.join(_base, "**", "libadios2_cxx11.so.2.10"), recursive=True)[:50]:
+                        _found.append(_p)
+            for _p in _found:
+                try:
+                    ctypes.CDLL(_p)
+                    break
+                except Exception:
+                    continue
+    except Exception:
+        pass
+except Exception:
+    # Best-effort only.
+    pass
 
 from .Geometry import geometry
 

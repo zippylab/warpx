@@ -35,14 +35,16 @@ if [ -d $HOME/src/blaspp ]
 then
   cd $HOME/src/blaspp
   git fetch --prune
-  git checkout v2024.05.31
+  #zippy git checkout v2024.05.31
+  git checkout v2025.05.28
   cd -
 else
-  git clone -b v2024.05.31 https://github.com/icl-utk-edu/blaspp.git $HOME/src/blaspp
+  #zippy git clone -b v2024.05.31 https://github.com/icl-utk-edu/blaspp.git $HOME/src/blaspp
+  git clone -b v2025.05.28 https://github.com/icl-utk-edu/blaspp.git $HOME/src/blaspp
 fi
 rm -rf $HOME/src/blaspp-aurora-gpu-build
-CXX=icpx CXXFLAGS="-qmkl" cmake -S $HOME/src/blaspp -B $HOME/src/blaspp-aurora-gpu-build -Duse_openmp=OFF -Dgpu_backend=sycl -DCMAKE_CXX_STANDARD=17 -DCMAKE_INSTALL_PREFIX=${SW_DIR}/blaspp-2024.05.31 -DCMAKE_EXE_LINKER_FLAGS="-qmkl"
-cmake --build $HOME/src/blaspp-aurora-gpu-build --target install --parallel 16
+CXX=icpx CXXFLAGS="-qmkl" cmake -S $HOME/src/blaspp -B $HOME/src/blaspp-aurora-gpu-build -Duse_openmp=OFF -Dgpu_backend=sycl -DCMAKE_CXX_STANDARD=17 -DCMAKE_INSTALL_PREFIX=${SW_DIR}/blaspp-2024.05.31 -DCMAKE_EXE_LINKER_FLAGS="-qmkl" -DCMAKE_VERBOSE_MAKEFILE=ON
+cmake --build $HOME/src/blaspp-aurora-gpu-build --target install --parallel 16 
 rm -rf $HOME/src/blaspp-aurora-gpu-build
 
 # LAPACK++ (for PSATD+RZ)
@@ -50,10 +52,12 @@ if [ -d $HOME/src/lapackpp ]
 then
   cd $HOME/src/lapackpp
   git fetch --prune
-  git checkout v2024.05.31
+  #zippy git checkout v2024.05.31
+  git checkout v2025.05.28
   cd -
 else
-  git clone -b v2024.05.31 https://github.com/icl-utk-edu/lapackpp.git $HOME/src/lapackpp
+  #zippy git clone -b v2024.05.31 https://github.com/icl-utk-edu/lapackpp.git $HOME/src/lapackpp
+  git clone -b v2025.05.28 https://github.com/icl-utk-edu/lapackpp.git $HOME/src/lapackpp
 fi
 rm -rf $HOME/src/lapackpp-aurora-gpu-build
 CXX=icpx CXXFLAGS="-DLAPACK_FORTRAN_ADD_ -qmkl" cmake -S $HOME/src/lapackpp -B $HOME/src/lapackpp-aurora-gpu-build -DCMAKE_CXX_STANDARD=17 -Dbuild_tests=OFF -DCMAKE_INSTALL_RPATH_USE_LINK_PATH=ON -DCMAKE_INSTALL_PREFIX=${SW_DIR}/lapackpp-2024.05.31 -DCMAKE_EXE_LINKER_FLAGS="-qmkl"
