@@ -1,5 +1,19 @@
 """Input generation & validation utilities for WarpX."""
 
+from .blocks import (  # noqa: F401
+    DiagSpec,
+    DomainSpec,
+    HybridIonSpec,
+    LaserSpec,
+    OhmSolverSpec,
+    SolverSpec,
+    SpeciesSpec,
+)
+from .hybrid_plasma import (  # noqa: F401
+    HybridPlasmaSpec,
+    generate_inputs_hybrid_plasma,
+)
+from .hybrid_plasma_validate import validate_hybrid_plasma_spec  # noqa: F401
 from .laser_acceleration import (  # noqa: F401
     LaserAccelerationSpec,
     generate_picmi_laser_acceleration,

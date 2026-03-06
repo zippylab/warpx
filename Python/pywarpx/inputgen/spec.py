@@ -26,6 +26,9 @@ class ValidationReport:
     def add(self, severity: Severity, code: str, message: str, **details: Any) -> None:
         self.issues.append(Issue(severity=severity, code=code, message=message, details=details))
 
+    def merge(self, other: "ValidationReport") -> None:
+        self.issues.extend(other.issues)
+
     @property
     def ok(self) -> bool:
         return not any(i.severity == Severity.ERROR for i in self.issues)

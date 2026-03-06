@@ -1,92 +1,52 @@
 from __future__ import annotations
 
-import math
-
-from .spec import Severity, ValidationReport
+from .blocks import validate_diag, validate_domain, validate_laser, validate_solver, validate_species
 from .laser_acceleration import LaserAccelerationSpec
+from .spec import Severity, ValidationReport
 
 
 def validate_laser_acceleration_spec(spec: LaserAccelerationSpec) -> ValidationReport:
     r = ValidationReport()
 
-    if spec.dim != 2:
-        r.add(Severity.ERROR, "laser.dim", "laser_acceleration currently supports dim=2 only", dim=spec.dim)
-        return r
-
-    if len(spec.number_of_cells) != 2:
-        r.add(Severity.ERROR, "laser.ncell.len", "number_of_cells must have length 2", n=len(spec.number_of_cells))
-
-    if len(spec.lower_bound) != 2 or len(spec.upper_bound) != 2:
-        r.add(Severity.ERROR, "laser.bounds.len", "bounds must have length 2")
-
-    if len(spec.field_bc) != 2:
-        r.add(Severity.ERROR, "laser.bc.len", "field_bc must have length 2")
-
+    # Domain validation runs first; if it fails (wrong dim, bad lengths) we
+    # cannot safely index into the lists below.
+    r.merge(validate_domain(spec.domain, allowed_dims=(2, 3)))
     if not r.ok:
         return r
 
-    if any(n <= 0 for n in spec.number_of_cells):
-        r.add(Severity.ERROR, "laser.ncell.nonpositive", "cell counts must be > 0")
+    r.merge(validate_solver(spec.solver))
+    r.merge(validate_laser(spec.laser))
+    r.merge(validate_species(spec.species, spec.domain))
+    r.merge(validate_diag(spec.diag))
 
-    if any(hi <= lo for lo, hi in zip(spec.lower_bound, spec.upper_bound)):
-        r.add(Severity.ERROR, "laser.bounds.invalid", "upper_bound must be > lower_bound")
+    # Cross-cutting: resolution heuristic
+    _check_laser_resolution(r, spec)
 
-    if spec.max_steps <= 0:
-        r.add(Severity.ERROR, "laser.max_steps", "max_steps must be > 0")
+    return r
 
-    if not (0.0 < spec.cfl <= 1.0):
-        r.add(Severity.WARNING, "laser.cfl", "cfl should be in (0,1]", cfl=spec.cfl)
 
-    if spec.plasma_density <= 0:
-        r.add(Severity.ERROR, "laser.plasma_density", "plasma_density must be > 0", plasma_density=spec.plasma_density)
-
-    if not (spec.plasma_zmin < spec.plasma_zmax):
-        r.add(Severity.ERROR, "laser.plasma_slab", "plasma_zmin must be < plasma_zmax")
-
-    # Sanity: ensure plasma slab overlaps domain z-range
-    zmin = spec.lower_bound[1]
-    zmax = spec.upper_bound[1]
-    if spec.plasma_zmax <= zmin or spec.plasma_zmin >= zmax:
-        r.add(
-            Severity.WARNING,
-            "laser.plasma_outside_domain",
-            "plasma slab does not overlap simulation z-range",
-            domain_zmin=zmin,
-            domain_zmax=zmax,
-            plasma_zmin=spec.plasma_zmin,
-            plasma_zmax=spec.plasma_zmax,
-        )
-
-    # Laser sanity
-    if spec.wavelength <= 0:
-        r.add(Severity.ERROR, "laser.wavelength", "wavelength must be > 0")
-
-    if spec.waist <= 0:
-        r.add(Severity.ERROR, "laser.waist", "waist must be > 0")
-
-    if spec.duration <= 0:
-        r.add(Severity.ERROR, "laser.duration", "duration must be > 0")
-
-    if spec.a0 <= 0:
-        r.add(Severity.WARNING, "laser.a0", "a0 should be > 0", a0=spec.a0)
-
-    # Resolution heuristics
+def _check_laser_resolution(r: ValidationReport, spec: LaserAccelerationSpec) -> None:
+    """Warn if any axis has fewer than 10 cells per laser wavelength."""
     try:
-        dx = (spec.upper_bound[0] - spec.lower_bound[0]) / spec.number_of_cells[0]
-        dz = (spec.upper_bound[1] - spec.lower_bound[1]) / spec.number_of_cells[1]
-        # for typical LWFA, ~20 cells per wavelength is a baseline
-        min_cells_per_lambda = min(spec.wavelength / dx, spec.wavelength / dz)
-        if min_cells_per_lambda < 10:
+        cell_sizes = [
+            (hi - lo) / n
+            for n, lo, hi in zip(
+                spec.domain.number_of_cells,
+                spec.domain.lower_bound,
+                spec.domain.upper_bound,
+            )
+        ]
+        cells_per_lambda = [spec.laser.wavelength / dx for dx in cell_sizes]
+        min_cpl = min(cells_per_lambda)
+        if min_cpl < 10:
             r.add(
                 Severity.WARNING,
                 "laser.resolution",
                 "Resolution may be too coarse for the laser wavelength (<10 cells per wavelength)",
-                cells_per_lambda=min_cells_per_lambda,
-                dx=dx,
-                dz=dz,
-                wavelength=spec.wavelength,
+                cells_per_lambda=cells_per_lambda,
+                cell_sizes=cell_sizes,
+                wavelength=spec.laser.wavelength,
             )
     except Exception as e:
-        r.add(Severity.WARNING, "laser.resolution.compute_failed", "Failed to compute resolution heuristic", error=str(e))
-
-    return r
+        r.add(Severity.WARNING, "laser.resolution.compute_failed",
+              "Failed to compute resolution heuristic", error=str(e))

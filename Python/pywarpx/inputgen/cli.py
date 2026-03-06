@@ -6,7 +6,10 @@ import sys
 from pathlib import Path
 
 from .generate import generate_picmi_uniform_plasma
+from .hybrid_plasma import HybridPlasmaSpec, generate_inputs_hybrid_plasma
+from .hybrid_plasma_validate import validate_hybrid_plasma_spec
 from .laser_acceleration import LaserAccelerationSpec, generate_picmi_laser_acceleration
+from .laser_acceleration_native import generate_inputs_laser_acceleration
 from .laser_acceleration_validate import validate_laser_acceleration_spec
 from .native import generate_inputs_uniform_plasma
 from .spec import UniformPlasmaSpec
@@ -20,7 +23,12 @@ def _load_uniform_plasma_spec(path: str) -> UniformPlasmaSpec:
 
 def _load_laser_acceleration_spec(path: str) -> LaserAccelerationSpec:
     data = json.loads(Path(path).read_text())
-    return LaserAccelerationSpec(**data)
+    return LaserAccelerationSpec.from_dict(data)
+
+
+def _load_hybrid_plasma_spec(path: str) -> HybridPlasmaSpec:
+    data = json.loads(Path(path).read_text())
+    return HybridPlasmaSpec.from_dict(data)
 
 
 def _apply_picmi_dry_run(script: str) -> str:
@@ -67,8 +75,28 @@ def main(argv: list[str] | None = None) -> int:
         help="Also emit a native inputs file by patching the generated script to call sim.write_input_file(file_name=...).",
     )
 
+    gen_laser_native = sub.add_parser(
+        "gen-laser-acceleration-native",
+        help="Generate a native WarpX inputs file from a LaserAccelerationSpec JSON",
+    )
+    gen_laser_native.add_argument("spec_json", help="Path to JSON spec")
+    gen_laser_native.add_argument("--out", required=True, help="Output inputs file path")
+
     val_laser = sub.add_parser("validate-laser-acceleration", help="Validate a LaserAccelerationSpec JSON")
     val_laser.add_argument("spec_json", help="Path to JSON spec")
+
+    gen_hybrid = sub.add_parser(
+        "gen-hybrid-plasma-native",
+        help="Generate a native WarpX inputs file from a HybridPlasmaSpec JSON",
+    )
+    gen_hybrid.add_argument("spec_json", help="Path to JSON spec")
+    gen_hybrid.add_argument("--out", required=True, help="Output inputs file path")
+
+    val_hybrid = sub.add_parser(
+        "validate-hybrid-plasma",
+        help="Validate a HybridPlasmaSpec JSON",
+    )
+    val_hybrid.add_argument("spec_json", help="Path to JSON spec")
 
     args = p.parse_args(argv)
 
@@ -104,6 +132,18 @@ def main(argv: list[str] | None = None) -> int:
             return 2
 
         Path(args.out).write_text(script)
+        print(json.dumps({"ok": True, "out": args.out}, indent=2))
+        return 0
+
+    if args.cmd == "gen-laser-acceleration-native":
+        spec = _load_laser_acceleration_spec(args.spec_json)
+        report = validate_laser_acceleration_spec(spec)
+        if not report.ok:
+            print(json.dumps({"ok": False, "issues": [i.__dict__ for i in report.issues]}, indent=2, default=str))
+            return 2
+
+        text = generate_inputs_laser_acceleration(spec)
+        Path(args.out).write_text(text)
         print(json.dumps({"ok": True, "out": args.out}, indent=2))
         return 0
 
@@ -174,6 +214,23 @@ def main(argv: list[str] | None = None) -> int:
             )
         )
         return 0
+
+    if args.cmd == "gen-hybrid-plasma-native":
+        spec = _load_hybrid_plasma_spec(args.spec_json)
+        report = validate_hybrid_plasma_spec(spec)
+        if not report.ok:
+            print(json.dumps({"ok": False, "issues": [i.__dict__ for i in report.issues]}, indent=2, default=str))
+            return 2
+        text = generate_inputs_hybrid_plasma(spec)
+        Path(args.out).write_text(text)
+        print(json.dumps({"ok": True, "out": args.out}, indent=2))
+        return 0
+
+    if args.cmd == "validate-hybrid-plasma":
+        spec = _load_hybrid_plasma_spec(args.spec_json)
+        report = validate_hybrid_plasma_spec(spec)
+        print(json.dumps({"ok": report.ok, "issues": [i.__dict__ for i in report.issues]}, indent=2, default=str))
+        return 0 if report.ok else 2
 
     raise RuntimeError(f"Unhandled cmd: {args.cmd}")
 
