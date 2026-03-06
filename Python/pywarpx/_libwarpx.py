@@ -95,21 +95,15 @@ try:
                 )
 
         # Try load from LD_LIBRARY_PATH via soname first.
-        try:
-            ctypes.CDLL("libadios2_cxx11.so.2.10")
-        except Exception:
-            # Try a direct filesystem search for a matching soname and load by absolute path.
-            _found = []
-            for _base in ("/opt/aurora",):
-                if os.path.isdir(_base):
-                    for _p in glob.glob(os.path.join(_base, "**", "libadios2_cxx11.so.2.10"), recursive=True)[:50]:
-                        _found.append(_p)
-            for _p in _found:
-                try:
-                    ctypes.CDLL(_p)
-                    break
-                except Exception:
-                    continue
+        # Note: only attempt sonames that are known to exist in the environment;
+        # recursive filesystem searches on HPC systems (e.g. large Spack trees) hang.
+        for _adios2_soname in ("libadios2_cxx11.so.2.10", "libadios2_cxx11.so.2.11",
+                               "libadios2_cxx11.so.2", "libadios2_cxx11.so"):
+            try:
+                ctypes.CDLL(_adios2_soname)
+                break
+            except Exception:
+                continue
     except Exception:
         pass
 except Exception:
