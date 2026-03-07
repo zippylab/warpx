@@ -64,12 +64,16 @@ class HybridPlasmaSpec:
     )
     ohm: OhmSolverSpec = field(default_factory=OhmSolverSpec)
     ions: HybridIonSpec = field(default_factory=HybridIonSpec)
+    # Fixed timestep in seconds (required by the hybrid-PIC solver; warpx.const_dt).
+    # Default ~T_ci/100 for B0=0.25 T, proton mass.
+    const_dt: float = 2e-9
     # Applied uniform background magnetic field [Bx, By, Bz] in Tesla.
     B0: List[float] = field(default_factory=lambda: [0.0, 0.0, 0.25])
     diag: DiagSpec = field(
         default_factory=lambda: DiagSpec(
             diag_period=100,
-            diag_fields=["B", "E", "rho", "J_displacement"],
+            diag_fields=["Bx", "By", "Bz", "Ex", "Ey", "Ez",
+                         "rho", "jx_displacement", "jy_displacement", "jz_displacement"],
         )
     )
 
@@ -100,6 +104,7 @@ class HybridPlasmaSpec:
         return cls(
             name=d.get("name", "hybrid_plasma"),
             domain=domain, solver=solver, ohm=ohm, ions=ions,
+            const_dt=d.get("const_dt", 2e-9),
             B0=d.get("B0", [0.0, 0.0, 0.25]),
             diag=diag,
         )
@@ -129,6 +134,7 @@ def generate_inputs_hybrid_plasma(spec: HybridPlasmaSpec) -> str:
         "solver": asdict(spec.solver),
         "ohm": asdict(spec.ohm),
         "ions": asdict(spec.ions),
+        "const_dt": spec.const_dt,
         "B0": spec.B0,
         "diag": asdict(spec.diag),
     }
@@ -214,6 +220,7 @@ boundary.particle_hi = {field_hi}
 
 # --- Numerics ---------------------------------------------------------------
 warpx.verbose = 1
+warpx.const_dt = {spec.const_dt:.17g}
 
 algo.maxwell_solver = hybrid
 algo.particle_shape = {pshape}

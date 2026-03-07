@@ -23,10 +23,18 @@ def validate_hybrid_plasma_spec(spec: HybridPlasmaSpec) -> ValidationReport:
     r.merge(validate_hybrid_ion(spec.ions))
     r.merge(validate_diag(spec.diag))
 
+    _check_const_dt(r, spec)
     _check_b0(r, spec)
     _check_density_consistency(r, spec)
 
     return r
+
+
+def _check_const_dt(r: ValidationReport, spec: HybridPlasmaSpec) -> None:
+    if spec.const_dt <= 0:
+        r.add(Severity.ERROR, "hybrid.const_dt",
+              "const_dt must be > 0 (required by the hybrid-PIC solver)",
+              const_dt=spec.const_dt)
 
 
 def _check_b0(r: ValidationReport, spec: HybridPlasmaSpec) -> None:

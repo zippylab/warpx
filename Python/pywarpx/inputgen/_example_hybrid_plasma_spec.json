@@ -14,11 +14,12 @@
   "hyper_resistivity": 0.0,
   "substeps": 40,
   "n_floor": 5e18,
+  "const_dt": 2e-9,
   "ion_density": 1.0e20,
   "ion_mass_amu": 1.0,
   "ion_temperature_eV": 1.0,
   "ppc": 64,
   "B0": [0.0, 0.0, 0.25],
   "diag_period": 100,
-  "diag_fields": ["B", "E", "rho", "J_displacement"]
+  "diag_fields": ["Bx", "By", "Bz", "Ex", "Ey", "Ez", "rho", "jx_displacement", "jy_displacement", "jz_displacement"]
 }
