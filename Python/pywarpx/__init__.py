@@ -23,23 +23,33 @@ if os.name == "nt":
         if os.path.exists(p_abs):
             os.add_dll_directory(p_abs)
 
-from ._libwarpx import libwarpx  # noqa
-from .Algo import algo  # noqa
-from .Amr import amr  # noqa
-from .Amrex import amrex  # noqa
-from .Boundary import boundary  # noqa
-from .Collisions import collisions  # noqa
-from .Constants import my_constants  # noqa
-from .Diagnostics import diagnostics, reduced_diagnostics  # noqa
-from .EB2 import eb2  # noqa
-from .Geometry import geometry  # noqa
-from .HybridPICModel import hybridpicmodel, external_vector_potential  # noqa
-from .Interpolation import interpolation  # noqa
-from .Lasers import lasers  # noqa
-from .LoadThirdParty import load_cupy  # noqa
-from .Particles import new_species, particles  # noqa
-from .PSATD import psatd  # noqa
-from .WarpX import warpx  # noqa
+# Runtime (compiled C extension) imports.  These require numpy, MPI, and the
+# WarpX pybind11 shared libraries.  Wrap in try/except so that lightweight
+# tooling such as input generation can import ``pywarpx`` (and subpackages
+# like ``pywarpx.inputgen``) in environments where the full WarpX stack is not
+# installed.
+try:
+    from ._libwarpx import libwarpx  # noqa
+    from .Algo import algo  # noqa
+    from .Amr import amr  # noqa
+    from .Amrex import amrex  # noqa
+    from .Boundary import boundary  # noqa
+    from .Collisions import collisions  # noqa
+    from .Constants import my_constants  # noqa
+    from .Diagnostics import diagnostics, reduced_diagnostics  # noqa
+    from .EB2 import eb2  # noqa
+    from .Geometry import geometry  # noqa
+    from .HybridPICModel import hybridpicmodel, external_vector_potential  # noqa
+    from .Interpolation import interpolation  # noqa
+    from .Lasers import lasers  # noqa
+    from .LoadThirdParty import load_cupy  # noqa
+    from .Particles import new_species, particles  # noqa
+    from .PSATD import psatd  # noqa
+    from .WarpX import warpx  # noqa
+    _RUNTIME_AVAILABLE = True
+except ImportError:
+    libwarpx = None  # type: ignore
+    _RUNTIME_AVAILABLE = False
 
 # This is a circular import and must happen after the import of libwarpx
 #
@@ -56,7 +66,9 @@ except ModuleNotFoundError:
 def __getattr__(name):
     # https://stackoverflow.com/a/57263518/2719194
     if name == "__version__":
-        return libwarpx.__version__
+        if libwarpx is not None:
+            return libwarpx.__version__
+        raise AttributeError("pywarpx runtime not available (compiled extensions not installed)")
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 
 

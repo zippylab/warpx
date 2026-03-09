@@ -48,3 +48,29 @@ def test_hybrid_validate_density_mismatch_warns():
     r = validate_hybrid_plasma_spec(spec)
     assert r.ok  # warning only
     assert any(i.code == "hybrid.density_mismatch" for i in r.issues)
+
+
+def test_hybrid_validate_whistler_cfl_warns():
+    """Old-style parameters (n=1e20, dx=1e-5 m) have l_i >> dx: whistler unstable."""
+    spec = _spec(
+        dim=1, number_of_cells=[512], lower_bound=[0.0], upper_bound=[0.00512],
+        field_bc=["periodic"],
+        n0_ref=1.0e20, substeps=400, const_dt=2e-9,
+        B0=[0.0, 0.0, 0.25], ion_density=1.0e20, max_steps=20,
+    )
+    r = validate_hybrid_plasma_spec(spec)
+    assert r.ok  # warning, not error
+    assert any(i.code == "hybrid.cfl.whistler" for i in r.issues)
+
+
+def test_hybrid_validate_whistler_cfl_ok():
+    """Self-consistent parameters (n=3.3e22, dx≈0.1*l_i): whistler CFL stable."""
+    spec = _spec(
+        dim=1, number_of_cells=[512], lower_bound=[0.0], upper_bound=[0.064],
+        field_bc=["periodic"],
+        n0_ref=3.3e22, substeps=40, const_dt=1.3e-9,
+        B0=[0.0, 0.0, 0.25], ion_density=3.3e22, Te=0.05,
+        ion_temperature_eV=0.05, max_steps=200,
+    )
+    r = validate_hybrid_plasma_spec(spec)
+    assert not any(i.code == "hybrid.cfl.whistler" for i in r.issues)

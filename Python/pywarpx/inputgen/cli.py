@@ -5,6 +5,8 @@ import json
 import sys
 from pathlib import Path
 
+from .electrostatic_plasma import ElectrostaticPlasmaSpec, generate_inputs_electrostatic_plasma
+from .electrostatic_plasma_validate import validate_electrostatic_plasma_spec
 from .generate import generate_picmi_uniform_plasma
 from .hybrid_plasma import HybridPlasmaSpec, generate_inputs_hybrid_plasma
 from .hybrid_plasma_validate import validate_hybrid_plasma_spec
@@ -14,6 +16,11 @@ from .laser_acceleration_validate import validate_laser_acceleration_spec
 from .native import generate_inputs_uniform_plasma
 from .spec import UniformPlasmaSpec
 from .validate import validate_picmi_syntax, validate_uniform_plasma_spec
+
+
+def _load_electrostatic_plasma_spec(path: str) -> ElectrostaticPlasmaSpec:
+    data = json.loads(Path(path).read_text())
+    return ElectrostaticPlasmaSpec.from_dict(data)
 
 
 def _load_uniform_plasma_spec(path: str) -> UniformPlasmaSpec:
@@ -46,6 +53,19 @@ def _apply_picmi_dry_run(script: str) -> str:
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="warpx-inputgen")
     sub = p.add_subparsers(dest="cmd", required=True)
+
+    gen_es = sub.add_parser(
+        "gen-electrostatic-plasma-native",
+        help="Generate a native WarpX inputs file from an ElectrostaticPlasmaSpec JSON",
+    )
+    gen_es.add_argument("spec_json", help="Path to JSON spec")
+    gen_es.add_argument("--out", required=True, help="Output inputs file path")
+
+    val_es = sub.add_parser(
+        "validate-electrostatic-plasma",
+        help="Validate an ElectrostaticPlasmaSpec JSON",
+    )
+    val_es.add_argument("spec_json", help="Path to JSON spec")
 
     gen = sub.add_parser("gen-uniform-plasma", help="Generate a PICMI script from a UniformPlasmaSpec JSON")
     gen.add_argument("spec_json", help="Path to JSON spec")
@@ -99,6 +119,23 @@ def main(argv: list[str] | None = None) -> int:
     val_hybrid.add_argument("spec_json", help="Path to JSON spec")
 
     args = p.parse_args(argv)
+
+    if args.cmd == "gen-electrostatic-plasma-native":
+        spec = _load_electrostatic_plasma_spec(args.spec_json)
+        report = validate_electrostatic_plasma_spec(spec)
+        if not report.ok:
+            print(json.dumps({"ok": False, "issues": [i.__dict__ for i in report.issues]}, indent=2, default=str))
+            return 2
+        text = generate_inputs_electrostatic_plasma(spec)
+        Path(args.out).write_text(text)
+        print(json.dumps({"ok": True, "out": args.out}, indent=2))
+        return 0
+
+    if args.cmd == "validate-electrostatic-plasma":
+        spec = _load_electrostatic_plasma_spec(args.spec_json)
+        report = validate_electrostatic_plasma_spec(spec)
+        print(json.dumps({"ok": report.ok, "issues": [i.__dict__ for i in report.issues]}, indent=2, default=str))
+        return 0 if report.ok else 2
 
     if args.cmd == "validate-uniform-plasma":
         spec = _load_uniform_plasma_spec(args.spec_json)

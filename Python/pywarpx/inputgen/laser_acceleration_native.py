@@ -132,6 +132,7 @@ max_step = {spec.solver.max_steps}
 # --- AMR / domain -----------------------------------------------------------
 amr.max_level = 0
 amr.n_cell = {n_cell}
+amr.blocking_factor = 1
 
 geometry.dims = {spec.domain.dim}
 geometry.prob_lo = {prob_lo}

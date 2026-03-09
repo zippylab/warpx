@@ -194,23 +194,28 @@ def validate_diag(diag: DiagSpec) -> ValidationReport:
 
 @dataclass
 class OhmSolverSpec:
-    """Parameters for the kinetic-fluid hybrid Ohm's law solver."""
-    Te: float = 10.0              # Electron temperature [eV]
-    n0_ref: float = 1.0e20       # Reference density [m^-3]; required when gamma != 1
-    gamma: float = 1.0            # Adiabatic exponent (1 = isothermal)
-    resistivity: float = 1e-7    # Plasma resistivity [Ohm·m]
+    """Parameters for the kinetic-fluid hybrid Ohm's law solver.
+
+    Default density n0_ref=3.3e22 m^-3 is self-consistent with B0=0.25 T and
+    vA/c=1e-4 (proton mass), giving ion skin depth l_i ≈ 1.25 mm.  With
+    dx=0.1*l_i ≈ 1.25e-4 m and substeps=40, the whistler CFL is ~0.77 (stable).
+    """
+    Te: float = 0.05             # Electron temperature [eV]
+    n0_ref: float = 3.3e22      # Reference density [m^-3]; required when gamma != 1
+    gamma: float = 1.0           # Adiabatic exponent (1 = isothermal)
+    resistivity: float = 1e-7   # Plasma resistivity [Ohm·m]
     hyper_resistivity: float = 0.0  # Hyper-resistivity [Ohm·m³]
-    substeps: int = 40            # B-field RK4 sub-steps per E-field half-step
-    n_floor: float = 5e18        # Density floor [m^-3] (prevents division by zero)
+    substeps: int = 40           # B-field RK4 sub-steps per E-field half-step
+    n_floor: float = 3.3e19     # Density floor [m^-3] (prevents division by zero)
 
 
 @dataclass
 class HybridIonSpec:
     """Single kinetic ion species for a hybrid-PIC run."""
-    density: float = 1.0e20      # Number density [m^-3]
-    mass_amu: float = 1.0        # Ion mass in proton masses (1.0 = proton)
-    temperature_eV: float = 1.0  # Ion temperature [eV]
-    ppc: int = 256                # Particles per cell
+    density: float = 3.3e22     # Number density [m^-3]
+    mass_amu: float = 1.0       # Ion mass in proton masses (1.0 = proton)
+    temperature_eV: float = 0.05  # Ion temperature [eV]
+    ppc: int = 64               # Particles per cell
 
 
 # ---------------------------------------------------------------------------

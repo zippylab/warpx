@@ -1,5 +1,10 @@
 """Input generation & validation utilities for WarpX."""
 
+from .electrostatic_plasma import (  # noqa: F401
+    ElectrostaticPlasmaSpec,
+    generate_inputs_electrostatic_plasma,
+)
+from .electrostatic_plasma_validate import validate_electrostatic_plasma_spec  # noqa: F401
 from .blocks import (  # noqa: F401
     DiagSpec,
     DomainSpec,

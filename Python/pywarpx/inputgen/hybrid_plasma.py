@@ -50,12 +50,14 @@ class HybridPlasmaSpec:
     (2018) with B0 along z, B0 = 0.25 T, beta = 0.01, m_ion/m_e = 100.
     """
     name: str = "hybrid_plasma"
+    # Default domain: 512 cells × 1.25e-4 m = 0.064 m (≈51 ion skin depths)
+    # Self-consistent with n0_ref=3.3e22, B0=0.25 T (vA/c=1e-4, l_i≈1.25 mm).
     domain: DomainSpec = field(
         default_factory=lambda: DomainSpec(
             dim=1,
-            number_of_cells=[1024],
+            number_of_cells=[512],
             lower_bound=[0.0],
-            upper_bound=[0.01],   # ~10 ion skin depths; set properly via spec
+            upper_bound=[0.064],
             field_bc=["periodic"],
         )
     )
@@ -65,8 +67,8 @@ class HybridPlasmaSpec:
     ohm: OhmSolverSpec = field(default_factory=OhmSolverSpec)
     ions: HybridIonSpec = field(default_factory=HybridIonSpec)
     # Fixed timestep in seconds (required by the hybrid-PIC solver; warpx.const_dt).
-    # Default ~T_ci/100 for B0=0.25 T, proton mass.
-    const_dt: float = 2e-9
+    # Default 1.3 ns ≈ 5e-3 * T_ci for B0=0.25 T, proton mass.
+    const_dt: float = 1.3e-9
     # Applied uniform background magnetic field [Bx, By, Bz] in Tesla.
     B0: List[float] = field(default_factory=lambda: [0.0, 0.0, 0.25])
     diag: DiagSpec = field(
@@ -104,7 +106,7 @@ class HybridPlasmaSpec:
         return cls(
             name=d.get("name", "hybrid_plasma"),
             domain=domain, solver=solver, ohm=ohm, ions=ions,
-            const_dt=d.get("const_dt", 2e-9),
+            const_dt=d.get("const_dt", 1.3e-9),
             B0=d.get("B0", [0.0, 0.0, 0.25]),
             diag=diag,
         )
@@ -207,6 +209,7 @@ max_step = {spec.solver.max_steps}
 # --- AMR / domain -----------------------------------------------------------
 amr.max_level = 0
 amr.n_cell = {n_cell}
+amr.blocking_factor = 1
 
 geometry.dims = {spec.domain.dim}
 geometry.prob_lo = {prob_lo}
