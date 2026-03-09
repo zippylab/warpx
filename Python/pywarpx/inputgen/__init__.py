@@ -8,9 +8,12 @@ from .electrostatic_plasma_validate import validate_electrostatic_plasma_spec  #
 from .blocks import (  # noqa: F401
     DiagSpec,
     DomainSpec,
+    EBSpec,
+    ExtBFieldSpec,
     HybridIonSpec,
     LaserSpec,
     OhmSolverSpec,
+    ParticleBeamSpec,
     SolverSpec,
     SpeciesSpec,
 )
@@ -19,6 +22,18 @@ from .hybrid_plasma import (  # noqa: F401
     generate_inputs_hybrid_plasma,
 )
 from .hybrid_plasma_validate import validate_hybrid_plasma_spec  # noqa: F401
+from .ion_beam_instability import (  # noqa: F401
+    IonBeamInstabilitySpec,
+    generate_inputs_ion_beam_instability,
+)
+from .ion_beam_instability_validate import validate_ion_beam_instability_spec  # noqa: F401
+from .magnetic_reconnection import (  # noqa: F401
+    MagneticReconnectionSpec,
+    generate_inputs_magnetic_reconnection,
+)
+from .magnetic_reconnection_validate import validate_magnetic_reconnection_spec  # noqa: F401
+from .pwfa import PWFASpec, generate_inputs_pwfa  # noqa: F401
+from .pwfa_validate import validate_pwfa_spec  # noqa: F401
 from .laser_acceleration import (  # noqa: F401
     LaserAccelerationSpec,
     generate_picmi_laser_acceleration,

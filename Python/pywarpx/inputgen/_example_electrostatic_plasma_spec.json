@@ -1,0 +1,21 @@
+{
+  "name": "electrostatic_plasma_1d",
+  "dim": 1,
+  "number_of_cells": [100],
+  "lower_bound": [0.0],
+  "upper_bound": [5e-3],
+  "field_bc": ["periodic"],
+  "max_steps": 200,
+  "particle_shape": "linear",
+  "const_dt": 1e-11,
+  "n0": 1e16,
+  "Te": 1.0,
+  "Ti": 0.0,
+  "ion_mass_amu": 1.0,
+  "ppc": 16,
+  "include_ions": true,
+  "electrostatic_solver": "labframe",
+  "poisson_precision": 1e-11,
+  "diag_period": 50,
+  "diag_fields": ["Ex", "Ey", "Ez", "rho"]
+}

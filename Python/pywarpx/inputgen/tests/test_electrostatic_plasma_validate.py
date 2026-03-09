@@ -126,3 +126,41 @@ def test_es_generate_inputs_no_ions():
     text = generate_inputs_electrostatic_plasma(spec)
     assert "electrons.charge = -q_e" in text
     assert "ions.charge = q_e" not in text
+
+
+def test_es_validate_eb_ok():
+    """EB spec with sphere implicit function passes validation."""
+    spec = _spec(eb_implicit_function="-(x**2 + y**2 + z**2 - 0.001**2)")
+    r = validate_electrostatic_plasma_spec(spec)
+    assert r.ok, r.issues
+
+
+def test_es_validate_eb_overspecified():
+    """Setting both eb_implicit_function and stl_file is an error."""
+    spec = _spec(
+        eb_implicit_function="-(x**2 - 1e-4)",
+        stl_file="sphere.stl",
+    )
+    r = validate_electrostatic_plasma_spec(spec)
+    assert not r.ok
+    assert any(i.code == "eb.overspecified" for i in r.issues)
+
+
+def test_es_generate_inputs_with_eb():
+    """Generator emits EB section when eb_implicit_function is set."""
+    from pywarpx.inputgen.electrostatic_plasma import generate_inputs_electrostatic_plasma
+
+    spec = _spec(eb_implicit_function="-(x**2 + y**2 - 0.001**2)",
+                 eb_potential="100.0")
+    text = generate_inputs_electrostatic_plasma(spec)
+    assert "warpx.eb_implicit_function" in text
+    assert "warpx.eb_potential(x,y,z,t) = 100.0" in text
+
+
+def test_es_generate_inputs_no_eb():
+    """Generator omits EB section when no EB is configured."""
+    from pywarpx.inputgen.electrostatic_plasma import generate_inputs_electrostatic_plasma
+
+    spec = ElectrostaticPlasmaSpec()
+    text = generate_inputs_electrostatic_plasma(spec)
+    assert "warpx.eb_implicit_function" not in text

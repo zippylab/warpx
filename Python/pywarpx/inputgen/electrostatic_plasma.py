@@ -22,7 +22,7 @@ import math
 from dataclasses import asdict, dataclass, field
 from typing import List
 
-from .blocks import DiagSpec, DomainSpec, SolverSpec
+from .blocks import DiagSpec, DomainSpec, EBSpec, SolverSpec
 
 # CODATA 2018 values
 _M_P = 1.67262192369e-27  # kg  (proton mass)
@@ -34,6 +34,7 @@ _Q_E = 1.602176634e-19    # C
 _DOMAIN_KEYS = {"dim", "number_of_cells", "lower_bound", "upper_bound", "field_bc"}
 _SOLVER_KEYS = {"max_steps", "particle_shape"}
 _DIAG_KEYS   = {"diag_period", "diag_fields"}
+_EB_KEYS     = {"eb_implicit_function", "eb_potential", "stl_file"}
 
 
 @dataclass
@@ -75,6 +76,7 @@ class ElectrostaticPlasmaSpec:
             diag_fields=["Ex", "Ey", "Ez", "rho"],
         )
     )
+    eb: EBSpec = field(default_factory=EBSpec)   # optional embedded boundary
 
     @classmethod
     def from_dict(cls, d: dict) -> "ElectrostaticPlasmaSpec":
@@ -82,6 +84,7 @@ class ElectrostaticPlasmaSpec:
         domain = DomainSpec(**{k: d[k] for k in _DOMAIN_KEYS if k in d})
         solver = SolverSpec(**{k: d[k] for k in _SOLVER_KEYS if k in d})
         diag = DiagSpec(**{k: d[k] for k in _DIAG_KEYS if k in d})
+        eb = EBSpec(**{k: d[k] for k in _EB_KEYS if k in d})
         return cls(
             name=d.get("name", "electrostatic_plasma"),
             domain=domain,
@@ -96,6 +99,7 @@ class ElectrostaticPlasmaSpec:
             electrostatic_solver=d.get("electrostatic_solver", "labframe"),
             poisson_precision=d.get("poisson_precision", 1e-11),
             diag=diag,
+            eb=eb,
         )
 
 
@@ -194,6 +198,19 @@ ions.uy_th = {ion_u_th:.17g}
 ions.uz_th = {ion_u_th:.17g}"""
 
     # ------------------------------------------------------------------
+    # Embedded boundary (optional)
+    # ------------------------------------------------------------------
+    eb_section = ""
+    if spec.eb.eb_implicit_function.strip():
+        eb_section = f"\n# --- Embedded boundary (implicit function) ---------------------------\nwarpx.eb_implicit_function = {spec.eb.eb_implicit_function}\n"
+        if spec.eb.eb_potential.strip():
+            eb_section += f"warpx.eb_potential(x,y,z,t) = {spec.eb.eb_potential}\n"
+    elif spec.eb.stl_file.strip():
+        eb_section = f"\n# --- Embedded boundary (STL) -----------------------------------------\neb2.geom_type = stl\neb2.stl_file = {spec.eb.stl_file}\n"
+        if spec.eb.eb_potential.strip():
+            eb_section += f"warpx.eb_potential(x,y,z,t) = {spec.eb.eb_potential}\n"
+
+    # ------------------------------------------------------------------
     # Diagnostics
     # ------------------------------------------------------------------
     fields_to_plot = " ".join(spec.diag.diag_fields)
@@ -229,7 +246,7 @@ boundary.field_lo = {field_lo}
 boundary.field_hi = {field_hi}
 boundary.particle_lo = {field_lo}
 boundary.particle_hi = {field_hi}
-
+{eb_section}
 # --- Electrostatic solver (Poisson / MLMG) ----------------------------------
 warpx.do_electrostatic = {spec.electrostatic_solver}
 warpx.self_fields_required_precision = {spec.poisson_precision:.17g}

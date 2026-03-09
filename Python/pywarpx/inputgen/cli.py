@@ -10,10 +10,16 @@ from .electrostatic_plasma_validate import validate_electrostatic_plasma_spec
 from .generate import generate_picmi_uniform_plasma
 from .hybrid_plasma import HybridPlasmaSpec, generate_inputs_hybrid_plasma
 from .hybrid_plasma_validate import validate_hybrid_plasma_spec
+from .ion_beam_instability import IonBeamInstabilitySpec, generate_inputs_ion_beam_instability
+from .ion_beam_instability_validate import validate_ion_beam_instability_spec
 from .laser_acceleration import LaserAccelerationSpec, generate_picmi_laser_acceleration
 from .laser_acceleration_native import generate_inputs_laser_acceleration
 from .laser_acceleration_validate import validate_laser_acceleration_spec
+from .magnetic_reconnection import MagneticReconnectionSpec, generate_inputs_magnetic_reconnection
+from .magnetic_reconnection_validate import validate_magnetic_reconnection_spec
 from .native import generate_inputs_uniform_plasma
+from .pwfa import PWFASpec, generate_inputs_pwfa
+from .pwfa_validate import validate_pwfa_spec
 from .spec import UniformPlasmaSpec
 from .validate import validate_picmi_syntax, validate_uniform_plasma_spec
 
@@ -36,6 +42,21 @@ def _load_laser_acceleration_spec(path: str) -> LaserAccelerationSpec:
 def _load_hybrid_plasma_spec(path: str) -> HybridPlasmaSpec:
     data = json.loads(Path(path).read_text())
     return HybridPlasmaSpec.from_dict(data)
+
+
+def _load_ion_beam_instability_spec(path: str) -> IonBeamInstabilitySpec:
+    data = json.loads(Path(path).read_text())
+    return IonBeamInstabilitySpec.from_dict(data)
+
+
+def _load_magnetic_reconnection_spec(path: str) -> MagneticReconnectionSpec:
+    data = json.loads(Path(path).read_text())
+    return MagneticReconnectionSpec.from_dict(data)
+
+
+def _load_pwfa_spec(path: str) -> PWFASpec:
+    data = json.loads(Path(path).read_text())
+    return PWFASpec.from_dict(data)
 
 
 def _apply_picmi_dry_run(script: str) -> str:
@@ -117,6 +138,45 @@ def main(argv: list[str] | None = None) -> int:
         help="Validate a HybridPlasmaSpec JSON",
     )
     val_hybrid.add_argument("spec_json", help="Path to JSON spec")
+
+    gen_beam = sub.add_parser(
+        "gen-ion-beam-instability-native",
+        help="Generate a native WarpX inputs file from an IonBeamInstabilitySpec JSON",
+    )
+    gen_beam.add_argument("spec_json", help="Path to JSON spec")
+    gen_beam.add_argument("--out", required=True, help="Output inputs file path")
+
+    val_beam = sub.add_parser(
+        "validate-ion-beam-instability",
+        help="Validate an IonBeamInstabilitySpec JSON",
+    )
+    val_beam.add_argument("spec_json", help="Path to JSON spec")
+
+    gen_recon = sub.add_parser(
+        "gen-magnetic-reconnection-native",
+        help="Generate a native WarpX inputs file from a MagneticReconnectionSpec JSON",
+    )
+    gen_recon.add_argument("spec_json", help="Path to JSON spec")
+    gen_recon.add_argument("--out", required=True, help="Output inputs file path")
+
+    val_recon = sub.add_parser(
+        "validate-magnetic-reconnection",
+        help="Validate a MagneticReconnectionSpec JSON",
+    )
+    val_recon.add_argument("spec_json", help="Path to JSON spec")
+
+    gen_pwfa = sub.add_parser(
+        "gen-pwfa-native",
+        help="Generate a native WarpX inputs file from a PWFASpec JSON",
+    )
+    gen_pwfa.add_argument("spec_json", help="Path to JSON spec")
+    gen_pwfa.add_argument("--out", required=True, help="Output inputs file path")
+
+    val_pwfa = sub.add_parser(
+        "validate-pwfa",
+        help="Validate a PWFASpec JSON",
+    )
+    val_pwfa.add_argument("spec_json", help="Path to JSON spec")
 
     args = p.parse_args(argv)
 
@@ -266,6 +326,57 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "validate-hybrid-plasma":
         spec = _load_hybrid_plasma_spec(args.spec_json)
         report = validate_hybrid_plasma_spec(spec)
+        print(json.dumps({"ok": report.ok, "issues": [i.__dict__ for i in report.issues]}, indent=2, default=str))
+        return 0 if report.ok else 2
+
+    if args.cmd == "gen-ion-beam-instability-native":
+        spec = _load_ion_beam_instability_spec(args.spec_json)
+        report = validate_ion_beam_instability_spec(spec)
+        if not report.ok:
+            print(json.dumps({"ok": False, "issues": [i.__dict__ for i in report.issues]}, indent=2, default=str))
+            return 2
+        text = generate_inputs_ion_beam_instability(spec)
+        Path(args.out).write_text(text)
+        print(json.dumps({"ok": True, "out": args.out}, indent=2))
+        return 0
+
+    if args.cmd == "validate-ion-beam-instability":
+        spec = _load_ion_beam_instability_spec(args.spec_json)
+        report = validate_ion_beam_instability_spec(spec)
+        print(json.dumps({"ok": report.ok, "issues": [i.__dict__ for i in report.issues]}, indent=2, default=str))
+        return 0 if report.ok else 2
+
+    if args.cmd == "gen-magnetic-reconnection-native":
+        spec = _load_magnetic_reconnection_spec(args.spec_json)
+        report = validate_magnetic_reconnection_spec(spec)
+        if not report.ok:
+            print(json.dumps({"ok": False, "issues": [i.__dict__ for i in report.issues]}, indent=2, default=str))
+            return 2
+        text = generate_inputs_magnetic_reconnection(spec)
+        Path(args.out).write_text(text)
+        print(json.dumps({"ok": True, "out": args.out}, indent=2))
+        return 0
+
+    if args.cmd == "validate-magnetic-reconnection":
+        spec = _load_magnetic_reconnection_spec(args.spec_json)
+        report = validate_magnetic_reconnection_spec(spec)
+        print(json.dumps({"ok": report.ok, "issues": [i.__dict__ for i in report.issues]}, indent=2, default=str))
+        return 0 if report.ok else 2
+
+    if args.cmd == "gen-pwfa-native":
+        spec = _load_pwfa_spec(args.spec_json)
+        report = validate_pwfa_spec(spec)
+        if not report.ok:
+            print(json.dumps({"ok": False, "issues": [i.__dict__ for i in report.issues]}, indent=2, default=str))
+            return 2
+        text = generate_inputs_pwfa(spec)
+        Path(args.out).write_text(text)
+        print(json.dumps({"ok": True, "out": args.out}, indent=2))
+        return 0
+
+    if args.cmd == "validate-pwfa":
+        spec = _load_pwfa_spec(args.spec_json)
+        report = validate_pwfa_spec(spec)
         print(json.dumps({"ok": report.ok, "issues": [i.__dict__ for i in report.issues]}, indent=2, default=str))
         return 0 if report.ok else 2
 

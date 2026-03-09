@@ -13,7 +13,7 @@ appropriate block.
 """
 
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Optional
 
 from .spec import Severity, ValidationReport
 
@@ -261,4 +261,135 @@ def validate_hybrid_ion(ions: HybridIonSpec) -> ValidationReport:
     if ions.ppc <= 0:
         r.add(Severity.ERROR, "ions.ppc", "ppc must be > 0", ppc=ions.ppc)
 
+    return r
+
+
+# ---------------------------------------------------------------------------
+# Embedded boundary block
+# ---------------------------------------------------------------------------
+
+@dataclass
+class EBSpec:
+    """Embedded boundary (EB) geometry.
+
+    The EB surface is the zero level-set of ``eb_implicit_function``.
+    Domain cells are where the function value is positive; EB interior where
+    negative.
+
+    Common expressions:
+      Sphere (3D):   ``-(x**2 + y**2 + z**2 - R**2)``   R = radius in m
+      Sphere (2D):   ``-(x**2 + y**2 - R**2)``
+      Cylinder (z):  ``-(x**2 + y**2 - R**2)``
+      Box (2D):      ``max(max(x - xhi, xlo - x), max(y - yhi, ylo - y))``
+      Plane (z=z0):  ``z0 - z``  (domain above z0)
+
+    Set ``eb_potential`` to apply a Dirichlet voltage on the EB surface
+    (electrostatic mode only; expression of x,y,z,t).
+    Set ``stl_file`` to load geometry from an STL file instead.
+    Leave all fields empty to disable EB.
+    """
+    eb_implicit_function: str = ""   # leave empty to disable EB
+    eb_potential: str = ""           # potential on EB surface; empty = PEC (grounded)
+    stl_file: str = ""               # path to STL file (alternative to implicit function)
+
+
+def validate_eb(eb: EBSpec) -> ValidationReport:
+    """Validate embedded boundary spec.
+
+    Returns OK immediately when no EB is configured (both eb_implicit_function
+    and stl_file are empty).
+    """
+    r = ValidationReport()
+    has_fn  = bool(eb.eb_implicit_function.strip())
+    has_stl = bool(eb.stl_file.strip())
+
+    if not has_fn and not has_stl:
+        return r  # no EB configured — valid
+
+    if has_fn and has_stl:
+        r.add(Severity.ERROR, "eb.overspecified",
+              "Set eb_implicit_function OR stl_file, not both")
+
+    if has_stl and not eb.stl_file.strip().endswith(".stl"):
+        r.add(Severity.WARNING, "eb.stl_extension",
+              "stl_file does not end with '.stl'", stl_file=eb.stl_file)
+
+    return r
+
+
+# ---------------------------------------------------------------------------
+# Analytic external B-field block
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ExtBFieldSpec:
+    """External/initial magnetic field defined by analytic (x,y,z) expressions.
+
+    When any expression is set, WarpX uses
+    ``warpx.B_ext_grid_init_style = parse_B_ext_grid_function``
+    and evaluates Bx/By/Bz at each grid point at t=0.
+    All three axes must be specified if any one is set.
+
+    Leave all fields empty to use a constant uniform B0 from the parent spec
+    (``warpx.B_ext_grid_init_style = constant``).
+
+    Example (Harris sheet, current in y-direction):
+        Bx_expression = "B0*tanh(z/delta)"
+        By_expression = "sqrt(Bg**2 + B0**2 - (B0*tanh(z/delta))**2)"
+        Bz_expression = "dB*sin(2*pi*x/Lx)*cos(pi*z/Lz)"
+
+    Constants like B0, delta, etc. must be prefixed ``my_constants.NAME``
+    in the parent generator, or embedded as numeric literals.
+    """
+    Bx_expression: str = ""
+    By_expression: str = ""
+    Bz_expression: str = ""
+
+
+def validate_ext_bfield(bf: ExtBFieldSpec) -> ValidationReport:
+    r = ValidationReport()
+    exprs = [bf.Bx_expression, bf.By_expression, bf.Bz_expression]
+    if not any(e.strip() for e in exprs):
+        return r  # constant mode — ok
+
+    missing = [ax for ax, e in zip(("Bx", "By", "Bz"), exprs) if not e.strip()]
+    if missing:
+        r.add(Severity.ERROR, "extbfield.incomplete",
+              f"All three B expressions must be set when any one is set; missing: {missing}",
+              missing=missing)
+    return r
+
+
+# ---------------------------------------------------------------------------
+# Particle beam block (PWFA / beam-driven wakefields)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ParticleBeamSpec:
+    """Gaussian particle beam for PWFA or other beam-driven scenarios.
+
+    Lengths in metres; momenta normalised to m_e * c (relativistic units).
+    q_tot is the total charge in Coulombs (negative for electron beams).
+    """
+    x_rms: float = 2e-6     # Transverse RMS width [m]
+    y_rms: float = 2e-6     # Transverse RMS width [m]
+    z_rms: float = 4e-6     # Longitudinal RMS length [m]
+    z_cut: float = 3.0      # Cutoff in sigma (gaussian_beam injection)
+    uz_m: float = 2000.0    # Mean normalised momentum (gamma * beta_z)
+    uz_th: float = 20.0     # Thermal spread in uz
+    q_tot: float = -1e-9    # Total charge [C]; negative for electron beams
+    z_mean: float = -50e-6  # Beam centroid z-position [m]
+    n_macro: int = 1000     # Number of macro-particles
+
+
+def validate_particle_beam(beam: ParticleBeamSpec, label: str = "beam") -> ValidationReport:
+    r = ValidationReport()
+    for attr, val in [("x_rms", beam.x_rms), ("y_rms", beam.y_rms), ("z_rms", beam.z_rms)]:
+        if val <= 0:
+            r.add(Severity.ERROR, f"{label}.{attr}", f"{attr} must be > 0", **{attr: val})
+    if beam.uz_m <= 0:
+        r.add(Severity.WARNING, f"{label}.uz_m",
+              f"uz_m <= 0: beam is not forward-propagating", uz_m=beam.uz_m)
+    if beam.n_macro <= 0:
+        r.add(Severity.ERROR, f"{label}.n_macro", "n_macro must be > 0", n_macro=beam.n_macro)
     return r
