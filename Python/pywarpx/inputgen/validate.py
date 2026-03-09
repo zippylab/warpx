@@ -105,6 +105,23 @@ def validate_uniform_plasma_spec(spec: UniformPlasmaSpec) -> ValidationReport:
                 cfl=spec.cfl,
             )
 
+    # AMR blocking_factor divisibility
+    bf = spec.amr_blocking_factor
+    if spec.amr_max_level < 0:
+        r.add(Severity.ERROR, "amr.max_level",
+              "amr_max_level must be >= 0", amr_max_level=spec.amr_max_level)
+    elif spec.amr_max_level > 0:
+        if bf < 1 or (bf & (bf - 1)) != 0:
+            r.add(Severity.ERROR, "amr.blocking_factor",
+                  "amr_blocking_factor must be a power of 2", amr_blocking_factor=bf)
+        else:
+            bad = [n for n in spec.number_of_cells if n % bf != 0]
+            if bad:
+                r.add(Severity.ERROR, "amr.blocking_factor.divisibility",
+                      f"number_of_cells must be divisible by amr_blocking_factor={bf}; "
+                      f"offending counts: {bad}",
+                      amr_blocking_factor=bf, bad_cells=bad)
+
     # Diagnostics
     if spec.diag_period <= 0:
         r.add(Severity.WARNING, "spec.diag_period.nonpositive", "diag_period should be > 0", diag_period=spec.diag_period)

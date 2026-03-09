@@ -16,6 +16,7 @@ Physical constants (CODATA 2018, matching scipy.constants / picmi):
 import math
 from dataclasses import asdict
 
+from .blocks import _emit_amr_block
 from .laser_acceleration import LaserAccelerationSpec
 
 # CODATA 2018 values (matches pywarpx / PICMI constants)
@@ -147,13 +148,7 @@ diag1.write_species = 0"""
 max_step = {spec.solver.max_steps}
 
 # --- AMR / domain -----------------------------------------------------------
-amr.max_level = 0
-amr.n_cell = {n_cell}
-amr.blocking_factor = 1
-
-geometry.dims = {spec.domain.dim}
-geometry.prob_lo = {prob_lo}
-geometry.prob_hi = {prob_hi}
+{_emit_amr_block(spec.amr, n_cell, prob_lo, prob_hi, spec.domain.dim)}
 
 # --- Boundary conditions ----------------------------------------------------
 boundary.field_lo = {field_lo}

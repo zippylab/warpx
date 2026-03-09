@@ -172,3 +172,33 @@ def test_es_pic_generate_asymmetric_bc():
     assert lo_line != hi_line
     assert "pec periodic" in lo_line
     assert "periodic pec" in hi_line
+
+
+# ---------------------------------------------------------------------------
+# AMR tests
+# ---------------------------------------------------------------------------
+
+def test_es_pic_amr_plasma_ok():
+    """max_level=1 with tag_by='plasma' → no AMR errors (default n_cell=[200] div by 8)."""
+    spec = _spec(amr_max_level=1, amr_blocking_factor=8, amr_tag_by="plasma")
+    r = validate_electrostatic_pic_spec(spec)
+    amr_errors = [i for i in r.issues if i.code.startswith("amr.") and i.severity == Severity.ERROR]
+    assert not amr_errors, amr_errors
+
+
+def test_es_pic_amr_bad_blocking():
+    """n_cell=[100, 512] (100 not div by 8) with max_level=1 → ERROR."""
+    spec = _spec(amr_max_level=1, amr_blocking_factor=8, amr_tag_by="plasma",
+                 number_of_cells=[100, 512])
+    r = validate_electrostatic_pic_spec(spec)
+    assert any("amr.blocking_factor.divisibility" in i.code for i in r.issues)
+
+
+def test_es_pic_dx_target():
+    """dx_target in from_dict auto-computes number_of_cells rounded to blocking_factor."""
+    spec = _spec(lower_bound=[0.0, 0.0], upper_bound=[1e-3, 2e-3],
+                 dx_target=5e-6, amr_blocking_factor=8)
+    assert len(spec.domain.number_of_cells) == 2
+    for n in spec.domain.number_of_cells:
+        assert n % 8 == 0
+        assert n > 0

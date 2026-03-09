@@ -6,6 +6,7 @@ from .electrostatic_plasma import (  # noqa: F401
 )
 from .electrostatic_plasma_validate import validate_electrostatic_plasma_spec  # noqa: F401
 from .blocks import (  # noqa: F401
+    AMRSpec,
     CollisionSpec,
     DiagSpec,
     DomainSpec,
@@ -21,6 +22,10 @@ from .blocks import (  # noqa: F401
     SolverSpec,
     SpeciesDefSpec,
     SpeciesSpec,
+    _AMR_KEY_MAP,
+    _emit_amr_block,
+    suggest_cells,
+    validate_amr,
 )
 from .electromagnetic_pic import (  # noqa: F401
     ElectromagneticPICSpec,

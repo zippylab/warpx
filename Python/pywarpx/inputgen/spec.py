@@ -77,6 +77,10 @@ class UniformPlasmaSpec:
     # WarpX-specific optional knobs
     warpx_max_grid_size: Optional[int] = None
 
+    # AMR settings (flat; kept here to avoid circular import with blocks.py)
+    amr_max_level: int = 0
+    amr_blocking_factor: int = 8
+
     # Metadata
     name: str = "uniform_plasma"
 
@@ -98,4 +102,6 @@ class UniformPlasmaSpec:
             "diag_period": self.diag_period,
             "diag_fields": list(self.diag_fields),
             "warpx_max_grid_size": self.warpx_max_grid_size,
+            "amr_max_level": self.amr_max_level,
+            "amr_blocking_factor": self.amr_blocking_factor,
         }

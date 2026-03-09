@@ -7,6 +7,7 @@ import math
 from .blocks import (
     Severity,
     ValidationReport,
+    validate_amr,
     validate_collision,
     validate_diag,
     validate_domain,
@@ -79,6 +80,7 @@ def validate_electrostatic_pic_spec(spec: ElectrostaticPICSpec) -> ValidationRep
     if not r.ok:
         return r
 
+    r.merge(validate_amr(spec.amr, spec.domain))
     r.merge(validate_es_solver(spec.solver))
     r.merge(validate_diag(spec.diag))
 

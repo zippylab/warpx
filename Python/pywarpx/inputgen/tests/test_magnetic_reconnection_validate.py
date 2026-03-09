@@ -94,3 +94,23 @@ def test_reconnect_generate_no_guide_field():
     spec = _spec(B0=0.1, Bg=0.0)
     text = generate_inputs_magnetic_reconnection(spec)
     assert "warpx.By_external_grid_function(x,y,z) = 0.0" in text
+
+
+# ---------------------------------------------------------------------------
+# AMR tests
+# ---------------------------------------------------------------------------
+
+def test_reconnect_amr_plasma_ok():
+    """max_level=1 with tag_by='plasma' → no AMR errors (default n_cell=[512,256] div by 8)."""
+    spec = _spec(amr_max_level=1, amr_blocking_factor=8, amr_tag_by="plasma")
+    r = validate_magnetic_reconnection_spec(spec)
+    amr_errors = [i for i in r.issues if i.code.startswith("amr.") and i.severity == Severity.ERROR]
+    assert not amr_errors, amr_errors
+
+
+def test_reconnect_amr_bad_blocking():
+    """n_cell=[100, 256] not divisible by blocking_factor=8 with max_level=1 → ERROR."""
+    spec = _spec(amr_max_level=1, amr_blocking_factor=8, amr_tag_by="plasma",
+                 number_of_cells=[100, 256])
+    r = validate_magnetic_reconnection_spec(spec)
+    assert any("amr.blocking_factor.divisibility" in i.code for i in r.issues)

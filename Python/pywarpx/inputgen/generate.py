@@ -31,6 +31,13 @@ def generate_picmi_uniform_plasma(spec: UniformPlasmaSpec) -> str:
     if spec.warpx_max_grid_size is not None:
         warpx_max_grid_size_line = f"    warpx_max_grid_size={spec.warpx_max_grid_size},\n"
 
+    amr_lines = ""
+    if spec.amr_max_level > 0:
+        amr_lines = (
+            f"    warpx_max_level={spec.amr_max_level},\n"
+            f"    warpx_blocking_factor={spec.amr_blocking_factor},\n"
+        )
+
     # If time_step_size is None, PICMI will compute dt from solver cfl.
     dt_line = ""
     if spec.time_step_size is not None:
@@ -87,6 +94,7 @@ sim = picmi.Simulation(
     solver=solver,
     max_steps={spec.max_steps!r},
 {dt_line.rstrip()}
+{amr_lines.rstrip()}
     particle_shape={spec.particle_shape!r},
     warpx_current_deposition_algo={spec.current_deposition_algo!r},
     warpx_use_filter=0,

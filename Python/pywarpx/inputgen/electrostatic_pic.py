@@ -31,6 +31,7 @@ from dataclasses import asdict, dataclass, field
 from typing import List, Optional
 
 from .blocks import (
+    AMRSpec,
     CollisionSpec,
     DiagSpec,
     DomainSpec,
@@ -38,6 +39,9 @@ from .blocks import (
     ESSolverSpec,
     ExtBFieldSpec,
     SpeciesDefSpec,
+    _AMR_KEY_MAP,
+    _emit_amr_block,
+    suggest_cells,
 )
 
 _M_E = 9.1093837015e-31
@@ -113,6 +117,8 @@ class ElectrostaticPICSpec:
     ext_bfield: Optional[ExtBFieldSpec] = None
     # Optional embedded boundary
     eb: Optional[EBSpec] = None
+    # AMR / resolution
+    amr: AMRSpec = field(default_factory=AMRSpec)
 
     @classmethod
     def from_dict(cls, d: dict) -> "ElectrostaticPICSpec":
@@ -121,6 +127,13 @@ class ElectrostaticPICSpec:
         Scalar/list keys follow the flat convention used by all sim types.
         The ``species`` and ``collisions`` keys are nested lists of dicts.
         """
+        amr = AMRSpec(**{attr: d[flat] for flat, attr in _AMR_KEY_MAP.items() if flat in d})
+        if "dx_target" in d and "number_of_cells" not in d:
+            if "lower_bound" in d and "upper_bound" in d:
+                d = dict(d)
+                d["number_of_cells"] = suggest_cells(
+                    d["lower_bound"], d["upper_bound"], d["dx_target"], amr.blocking_factor
+                )
         domain = DomainSpec(**{k: d[k] for k in _DOMAIN_KEYS if k in d})
         solver = ESSolverSpec(**{k: d[k] for k in _ES_SOLVER_KEYS if k in d})
         diag = DiagSpec(**{k: d[k] for k in _DIAG_KEYS if k in d})
@@ -147,6 +160,7 @@ class ElectrostaticPICSpec:
             field_bc_hi=d.get("field_bc_hi"),
             ext_bfield=ext_bfield,
             eb=eb,
+            amr=amr,
         )
 
 
@@ -461,13 +475,7 @@ diag1.write_species = 0"""
 max_step = {spec.solver.max_steps}
 
 # --- AMR / domain ------------------------------------------------------------
-amr.max_level = 0
-amr.n_cell = {n_cell}
-amr.blocking_factor = 1
-
-geometry.dims = {spec.domain.dim}
-geometry.prob_lo = {prob_lo}
-geometry.prob_hi = {prob_hi}
+{_emit_amr_block(spec.amr, n_cell, prob_lo, prob_hi, spec.domain.dim)}
 
 # --- Boundary conditions -----------------------------------------------------
 boundary.field_lo = {bc_field_lo_str}

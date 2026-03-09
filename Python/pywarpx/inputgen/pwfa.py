@@ -28,7 +28,17 @@ import math
 from dataclasses import asdict, dataclass, field
 from typing import List, Optional
 
-from .blocks import DiagSpec, DomainSpec, ParticleBeamSpec, SolverSpec, SpeciesSpec
+from .blocks import (
+    AMRSpec,
+    DiagSpec,
+    DomainSpec,
+    ParticleBeamSpec,
+    SolverSpec,
+    SpeciesSpec,
+    _AMR_KEY_MAP,
+    _emit_amr_block,
+    suggest_cells,
+)
 
 _M_E = 9.1093837015e-31
 _M_P = 1.67262192369e-27
@@ -111,9 +121,18 @@ class PWFASpec:
             diag_fields=["Ex", "Ey", "Ez", "Bx", "By", "Bz", "rho"],
         )
     )
+    # AMR / resolution
+    amr: AMRSpec = field(default_factory=AMRSpec)
 
     @classmethod
     def from_dict(cls, d: dict) -> "PWFASpec":
+        amr = AMRSpec(**{attr: d[flat] for flat, attr in _AMR_KEY_MAP.items() if flat in d})
+        if "dx_target" in d and "number_of_cells" not in d:
+            if "lower_bound" in d and "upper_bound" in d:
+                d = dict(d)
+                d["number_of_cells"] = suggest_cells(
+                    d["lower_bound"], d["upper_bound"], d["dx_target"], amr.blocking_factor
+                )
         domain = DomainSpec(**{k: d[k] for k in _DOMAIN_KEYS if k in d})
         solver = SolverSpec(**{k: d[k] for k in _SOLVER_KEYS if k in d})
         plasma = SpeciesSpec(**{k: d[k] for k in _SPECIES_KEYS if k in d})
@@ -128,6 +147,7 @@ class PWFASpec:
             driver=driver, witness=witness,
             moving_window=d.get("moving_window", True),
             diag=diag,
+            amr=amr,
         )
 
 
@@ -247,13 +267,7 @@ diag1.write_species = 0"""
 max_step = {spec.solver.max_steps}
 
 # --- AMR / domain -----------------------------------------------------------
-amr.max_level = 0
-amr.n_cell = {n_cell}
-amr.blocking_factor = 1
-
-geometry.dims = {spec.domain.dim}
-geometry.prob_lo = {prob_lo}
-geometry.prob_hi = {prob_hi}
+{_emit_amr_block(spec.amr, n_cell, prob_lo, prob_hi, spec.domain.dim)}
 
 # --- Boundary conditions ----------------------------------------------------
 boundary.field_lo = {bc}

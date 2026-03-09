@@ -80,3 +80,23 @@ def test_beam_generate_auto_core_drift():
     text = generate_inputs_ion_beam_instability(spec)
     # core drift should be nonzero (auto-computed) and negative
     assert "core_ions.uz_m = -" in text or "core_ions.uz_m = 0" not in text
+
+
+# ---------------------------------------------------------------------------
+# AMR tests
+# ---------------------------------------------------------------------------
+
+def test_beam_amr_plasma_ok():
+    """max_level=1 with tag_by='plasma' → no AMR errors (default n_cell=[128,512] div by 8)."""
+    spec = _spec(amr_max_level=1, amr_blocking_factor=8, amr_tag_by="plasma")
+    r = validate_ion_beam_instability_spec(spec)
+    amr_errors = [i for i in r.issues if i.code.startswith("amr.") and i.severity == Severity.ERROR]
+    assert not amr_errors, amr_errors
+
+
+def test_beam_amr_bad_blocking():
+    """n_cell=[100, 512] (100 not div by 8) with max_level=1 → ERROR."""
+    spec = _spec(amr_max_level=1, amr_blocking_factor=8, amr_tag_by="plasma",
+                 number_of_cells=[100, 512])
+    r = validate_ion_beam_instability_spec(spec)
+    assert any("amr.blocking_factor.divisibility" in i.code for i in r.issues)

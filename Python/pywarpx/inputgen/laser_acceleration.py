@@ -16,7 +16,17 @@ composed of reusable block dataclasses from blocks.py.
 from dataclasses import asdict, dataclass, field
 from textwrap import dedent
 
-from .blocks import DiagSpec, DomainSpec, ImplicitSolverSpec, LaserSpec, SolverSpec, SpeciesSpec
+from .blocks import (
+    AMRSpec,
+    DiagSpec,
+    DomainSpec,
+    ImplicitSolverSpec,
+    LaserSpec,
+    SolverSpec,
+    SpeciesSpec,
+    _AMR_KEY_MAP,
+    suggest_cells,
+)
 
 _GRID_CLASS = {2: "Cartesian2DGrid", 3: "Cartesian3DGrid"}
 
@@ -48,6 +58,8 @@ class LaserAccelerationSpec:
     laser: LaserSpec = field(default_factory=LaserSpec)
     diag: DiagSpec = field(default_factory=DiagSpec)
     implicit: ImplicitSolverSpec = field(default_factory=ImplicitSolverSpec)
+    # AMR / resolution
+    amr: AMRSpec = field(default_factory=AMRSpec)
 
     def __post_init__(self) -> None:
         # When dim=3 but domain list fields are still at 2D defaults,
@@ -59,6 +71,13 @@ class LaserAccelerationSpec:
     @classmethod
     def from_dict(cls, d: dict) -> "LaserAccelerationSpec":
         """Construct from a flat JSON dict (the backward-compatible external format)."""
+        amr = AMRSpec(**{attr: d[flat] for flat, attr in _AMR_KEY_MAP.items() if flat in d})
+        if "dx_target" in d and "number_of_cells" not in d:
+            if "lower_bound" in d and "upper_bound" in d:
+                d = dict(d)
+                d["number_of_cells"] = suggest_cells(
+                    d["lower_bound"], d["upper_bound"], d["dx_target"], amr.blocking_factor
+                )
         domain = DomainSpec(**{k: d[k] for k in _DOMAIN_KEYS if k in d})
         solver = SolverSpec(**{k: d[k] for k in _SOLVER_KEYS if k in d})
         species = SpeciesSpec(**{k: d[k] for k in _SPECIES_KEYS if k in d})
@@ -76,6 +95,7 @@ class LaserAccelerationSpec:
             name=d.get("name", "laser_acceleration"),
             domain=domain, solver=solver, species=species, laser=laser, diag=diag,
             implicit=implicit,
+            amr=amr,
         )
 
 

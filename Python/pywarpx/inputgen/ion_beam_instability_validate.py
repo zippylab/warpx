@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 
 from .blocks import (
+    validate_amr,
     validate_diag,
     validate_domain,
     validate_hybrid_ion,
@@ -20,6 +21,7 @@ def validate_ion_beam_instability_spec(spec: IonBeamInstabilitySpec) -> Validati
     if not r.ok:
         return r
 
+    r.merge(validate_amr(spec.amr, spec.domain))
     r.merge(validate_solver(spec.solver))
     r.merge(validate_ohm_solver(spec.ohm))
     r.merge(validate_hybrid_ion(spec.core))

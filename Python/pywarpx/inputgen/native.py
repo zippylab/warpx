@@ -46,6 +46,8 @@ def generate_inputs_uniform_plasma(spec: UniformPlasmaSpec) -> str:
     if spec.time_step_size is not None:
         dt_lines = f"warpx.dt = {spec.time_step_size:.17g}\n"
 
+    # AMR: use blocking_factor=1 when max_level==0 for backward compat
+    amr_bf = 1 if spec.amr_max_level == 0 else spec.amr_blocking_factor
     max_grid_size_line = ""
     if spec.warpx_max_grid_size is not None:
         max_grid_size_line = f"amr.max_grid_size = {spec.warpx_max_grid_size}\n"
@@ -81,8 +83,9 @@ def generate_inputs_uniform_plasma(spec: UniformPlasmaSpec) -> str:
 
 max_step = {spec.max_steps}
 
-amr.max_level = 0
+amr.max_level = {spec.amr_max_level}
 amr.n_cell = {n_cell}
+amr.blocking_factor = {amr_bf}
 {max_grid_size_line.rstrip()}
 
 geometry.dims = 3

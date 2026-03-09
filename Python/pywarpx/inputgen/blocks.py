@@ -12,6 +12,7 @@ classmethod on the composite spec handles distribution of flat keys to the
 appropriate block.
 """
 
+import math
 from dataclasses import dataclass, field
 from typing import List, Optional
 
@@ -788,3 +789,199 @@ def validate_es_solver(sol: ESSolverSpec) -> ValidationReport:
               electrostatic_mode=sol.electrostatic_mode)
 
     return r
+
+
+# ---------------------------------------------------------------------------
+# AMR block
+# ---------------------------------------------------------------------------
+
+#: Flat JSON key → AMRSpec attribute mapping (shared by all sim-type from_dict).
+_AMR_KEY_MAP: dict = {
+    "amr_max_level":      "max_level",
+    "amr_ref_ratio":      "ref_ratio",
+    "amr_max_grid_size":  "max_grid_size",
+    "amr_blocking_factor": "blocking_factor",
+    "amr_tag_by":         "tag_by",
+    "fine_tag_lo":        "fine_tag_lo",
+    "fine_tag_hi":        "fine_tag_hi",
+    "ref_patch_function": "ref_patch_function",
+}
+
+
+@dataclass
+class AMRSpec:
+    """Adaptive mesh refinement parameters.
+
+    When ``max_level == 0`` (default) the simulation runs on a single uniform
+    grid and WarpX behaves exactly as before.  When ``max_level >= 1`` the
+    generator emits the full AMR ParmParse block and requires either:
+
+    * ``tag_by = "box"`` — static refinement of a physical sub-box;
+      ``fine_tag_lo`` / ``fine_tag_hi`` must be provided (list of floats, one
+      per spatial dimension, in metres).
+    * ``tag_by = "plasma"`` — refine any cell containing macro-particles
+      (``warpx.refine_plasma = 1``).
+    * ``tag_by = "function"`` — analytic refinement region via WarpX parser
+      expression; ``ref_patch_function`` must be provided.
+
+    ``blocking_factor`` is applied when ``max_level > 0``; it must be a power
+    of two and must divide ``number_of_cells`` in every dimension.  When
+    ``max_level == 0`` the generator always uses ``amr.blocking_factor = 1``
+    to preserve backward compatibility with arbitrary cell counts.
+
+    ``ref_ratio`` (2 or 4) is isotropic and replicated once per level in the
+    output (e.g. ``amr.ref_ratio = 2 2`` for ``max_level=2``).
+    """
+    max_level: int = 0
+    ref_ratio: int = 2               # isotropic; one value per level in output
+    max_grid_size: int = 128         # max AMReX patch size (load balancing)
+    blocking_factor: int = 8         # used when max_level>0; 1 when max_level==0
+    tag_by: str = "box"              # "box" | "plasma" | "function" | "none"
+    fine_tag_lo: Optional[List[float]] = None   # physical coords; len == dim
+    fine_tag_hi: Optional[List[float]] = None
+    ref_patch_function: str = ""     # WarpX parser expr (tag_by="function")
+
+
+def validate_amr(amr: AMRSpec, domain: DomainSpec) -> ValidationReport:
+    """Validate AMR configuration against the domain.
+
+    Checks:
+    - max_level >= 0
+    - ref_ratio in {2, 4}
+    - blocking_factor is a power of 2
+    - (when max_level > 0) n_cell divisible by blocking_factor per axis
+    - (when max_level > 0, tag_by="box") fine_tag_lo/hi both provided
+    - (when max_level > 0, tag_by="function") ref_patch_function non-empty
+    - fine_tag_lo/hi lengths match domain.dim when provided
+    - max_grid_size >= blocking_factor
+    """
+    r = ValidationReport()
+
+    if amr.max_level < 0:
+        r.add(Severity.ERROR, "amr.max_level",
+              "max_level must be >= 0", max_level=amr.max_level)
+        return r
+
+    if amr.ref_ratio not in (2, 4):
+        r.add(Severity.ERROR, "amr.ref_ratio",
+              "ref_ratio must be 2 or 4", ref_ratio=amr.ref_ratio)
+
+    bf = amr.blocking_factor
+    if bf < 1 or (bf & (bf - 1)) != 0:
+        r.add(Severity.ERROR, "amr.blocking_factor",
+              "blocking_factor must be a power of 2", blocking_factor=bf)
+    else:
+        if amr.max_level > 0:
+            bad = [n for n in domain.number_of_cells if n % bf != 0]
+            if bad:
+                r.add(Severity.ERROR, "amr.blocking_factor.divisibility",
+                      f"number_of_cells must be divisible by blocking_factor={bf} "
+                      f"in every dimension; offending counts: {bad}",
+                      blocking_factor=bf, bad_cells=bad)
+
+    if amr.max_grid_size < bf:
+        r.add(Severity.ERROR, "amr.max_grid_size",
+              "max_grid_size must be >= blocking_factor",
+              max_grid_size=amr.max_grid_size, blocking_factor=bf)
+
+    if amr.max_level > 0:
+        if amr.tag_by == "box":
+            if amr.fine_tag_lo is None or amr.fine_tag_hi is None:
+                r.add(Severity.ERROR, "amr.fine_tag.missing",
+                      "fine_tag_lo and fine_tag_hi are required when "
+                      "max_level > 0 and tag_by='box'")
+        elif amr.tag_by == "function":
+            if not amr.ref_patch_function.strip():
+                r.add(Severity.ERROR, "amr.ref_patch_function.missing",
+                      "ref_patch_function must be set when "
+                      "max_level > 0 and tag_by='function'")
+        elif amr.tag_by == "none":
+            r.add(Severity.WARNING, "amr.tag_by.none",
+                  "max_level > 0 but tag_by='none': no cells will be refined")
+
+    for name, lst in [("fine_tag_lo", amr.fine_tag_lo), ("fine_tag_hi", amr.fine_tag_hi)]:
+        if lst is not None and len(lst) != domain.dim:
+            r.add(Severity.ERROR, f"amr.{name}.len",
+                  f"{name} must have length {domain.dim} (one entry per dim)",
+                  got=len(lst), expected=domain.dim)
+
+    return r
+
+
+def suggest_cells(
+    lower_bound: List[float],
+    upper_bound: List[float],
+    dx_target: float,
+    blocking_factor: int = 8,
+) -> List[int]:
+    """Suggest ``number_of_cells`` for a given physical resolution target.
+
+    For each spatial axis the number of cells is computed as:
+        n = ceil((hi - lo) / dx_target)
+    then rounded up to the nearest multiple of ``blocking_factor`` (minimum
+    ``blocking_factor``) so that AMReX will accept the grid without errors.
+
+    Args:
+        lower_bound: Physical lower bounds per axis [m].
+        upper_bound: Physical upper bounds per axis [m].
+        dx_target: Target cell size [m] (same for all axes).
+        blocking_factor: AMReX blocking_factor (default 8, AMReX default).
+
+    Returns:
+        List of integer cell counts, one per axis.
+    """
+    cells: List[int] = []
+    for lo, hi in zip(lower_bound, upper_bound):
+        n = max(1, math.ceil((hi - lo) / dx_target))
+        n = max(blocking_factor, blocking_factor * math.ceil(n / blocking_factor))
+        cells.append(n)
+    return cells
+
+
+def _emit_amr_block(
+    amr: AMRSpec,
+    n_cell_str: str,
+    prob_lo: str,
+    prob_hi: str,
+    dim: int,
+) -> str:
+    """Emit the AMR + geometry ParmParse lines.
+
+    When ``amr.max_level == 0`` emits ``amr.blocking_factor = 1`` for backward
+    compatibility (arbitrary n_cell is accepted).  When ``max_level >= 1``
+    emits the full AMR block including refinement ratio, patch size, and
+    tagging directives.
+
+    Returns a string ready for insertion into a ParmParse inputs file.
+    """
+    # When max_level==0, keep blocking_factor=1 for backward compat
+    bf = 1 if amr.max_level == 0 else amr.blocking_factor
+
+    lines: List[str] = [
+        f"amr.max_level = {amr.max_level}",
+        f"amr.n_cell = {n_cell_str}",
+        f"amr.blocking_factor = {bf}",
+    ]
+
+    if amr.max_level > 0:
+        ref_ratio_str = " ".join(str(amr.ref_ratio) for _ in range(amr.max_level))
+        lines.append(f"amr.max_grid_size = {amr.max_grid_size}")
+        lines.append(f"amr.ref_ratio = {ref_ratio_str}")
+        if amr.tag_by == "box" and amr.fine_tag_lo and amr.fine_tag_hi:
+            lo_str = " ".join(f"{x:.17g}" for x in amr.fine_tag_lo)
+            hi_str = " ".join(f"{x:.17g}" for x in amr.fine_tag_hi)
+            lines.append(f"warpx.fine_tag_lo = {lo_str}")
+            lines.append(f"warpx.fine_tag_hi = {hi_str}")
+        elif amr.tag_by == "plasma":
+            lines.append("warpx.refine_plasma = 1")
+        elif amr.tag_by == "function" and amr.ref_patch_function.strip():
+            lines.append(
+                f"warpx.ref_patch_function(x,y,z) = {amr.ref_patch_function}"
+            )
+
+    lines.append("")   # blank line before geometry
+    lines.append(f"geometry.dims = {dim}")
+    lines.append(f"geometry.prob_lo = {prob_lo}")
+    lines.append(f"geometry.prob_hi = {prob_hi}")
+
+    return "\n".join(lines)

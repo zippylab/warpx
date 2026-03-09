@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 
-from .blocks import validate_diag, validate_domain, validate_eb, validate_solver
+from .blocks import validate_amr, validate_diag, validate_domain, validate_eb, validate_solver
 from .electrostatic_plasma import ElectrostaticPlasmaSpec
 from .spec import Severity, ValidationReport
 
@@ -30,6 +30,7 @@ def validate_electrostatic_plasma_spec(spec: ElectrostaticPlasmaSpec) -> Validat
     if not r.ok:
         return r
 
+    r.merge(validate_amr(spec.amr, spec.domain))
     r.merge(validate_solver(spec.solver))
     r.merge(validate_diag(spec.diag))
     r.merge(validate_eb(spec.eb))

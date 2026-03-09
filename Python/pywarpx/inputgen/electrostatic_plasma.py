@@ -22,7 +22,16 @@ import math
 from dataclasses import asdict, dataclass, field
 from typing import List
 
-from .blocks import DiagSpec, DomainSpec, EBSpec, SolverSpec
+from .blocks import (
+    AMRSpec,
+    DiagSpec,
+    DomainSpec,
+    EBSpec,
+    SolverSpec,
+    _AMR_KEY_MAP,
+    _emit_amr_block,
+    suggest_cells,
+)
 
 # CODATA 2018 values
 _M_P = 1.67262192369e-27  # kg  (proton mass)
@@ -77,10 +86,19 @@ class ElectrostaticPlasmaSpec:
         )
     )
     eb: EBSpec = field(default_factory=EBSpec)   # optional embedded boundary
+    # AMR / resolution
+    amr: AMRSpec = field(default_factory=AMRSpec)
 
     @classmethod
     def from_dict(cls, d: dict) -> "ElectrostaticPlasmaSpec":
         """Construct from a flat JSON dict (backward-compatible external format)."""
+        amr = AMRSpec(**{attr: d[flat] for flat, attr in _AMR_KEY_MAP.items() if flat in d})
+        if "dx_target" in d and "number_of_cells" not in d:
+            if "lower_bound" in d and "upper_bound" in d:
+                d = dict(d)
+                d["number_of_cells"] = suggest_cells(
+                    d["lower_bound"], d["upper_bound"], d["dx_target"], amr.blocking_factor
+                )
         domain = DomainSpec(**{k: d[k] for k in _DOMAIN_KEYS if k in d})
         solver = SolverSpec(**{k: d[k] for k in _SOLVER_KEYS if k in d})
         diag = DiagSpec(**{k: d[k] for k in _DIAG_KEYS if k in d})
@@ -100,6 +118,7 @@ class ElectrostaticPlasmaSpec:
             poisson_precision=d.get("poisson_precision", 1e-11),
             diag=diag,
             eb=eb,
+            amr=amr,
         )
 
 
@@ -151,9 +170,6 @@ def generate_inputs_electrostatic_plasma(spec: ElectrostaticPlasmaSpec) -> str:
     prob_hi  = " ".join(f"{x:.17g}" for x in spec.domain.upper_bound)
     field_lo = " ".join(bc for bc in spec.domain.field_bc)
     field_hi = field_lo  # symmetric
-    # AMReX requires n_cell divisible by blocking_factor (default 8).
-    # For simple non-AMR ES-PIC runs, set blocking_factor=1 for full flexibility.
-    blocking_factor = 1
 
     # ------------------------------------------------------------------
     # Electron thermal velocity
@@ -233,13 +249,7 @@ diag1.write_species = 0"""
 max_step = {spec.solver.max_steps}
 
 # --- AMR / domain -----------------------------------------------------------
-amr.max_level = 0
-amr.n_cell = {n_cell}
-amr.blocking_factor = {blocking_factor}
-
-geometry.dims = {spec.domain.dim}
-geometry.prob_lo = {prob_lo}
-geometry.prob_hi = {prob_hi}
+{_emit_amr_block(spec.amr, n_cell, prob_lo, prob_hi, spec.domain.dim)}
 
 # --- Boundary conditions ----------------------------------------------------
 boundary.field_lo = {field_lo}

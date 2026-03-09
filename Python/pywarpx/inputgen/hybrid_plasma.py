@@ -20,11 +20,15 @@ from dataclasses import asdict, dataclass, field
 from typing import List
 
 from .blocks import (
+    AMRSpec,
     DiagSpec,
     DomainSpec,
     HybridIonSpec,
     OhmSolverSpec,
     SolverSpec,
+    _AMR_KEY_MAP,
+    _emit_amr_block,
+    suggest_cells,
 )
 
 # CODATA 2018 values
@@ -78,10 +82,19 @@ class HybridPlasmaSpec:
                          "rho", "jx_displacement", "jy_displacement", "jz_displacement"],
         )
     )
+    # AMR / resolution
+    amr: AMRSpec = field(default_factory=AMRSpec)
 
     @classmethod
     def from_dict(cls, d: dict) -> "HybridPlasmaSpec":
         """Construct from a flat JSON dict (backward-compatible external format)."""
+        amr = AMRSpec(**{attr: d[flat] for flat, attr in _AMR_KEY_MAP.items() if flat in d})
+        if "dx_target" in d and "number_of_cells" not in d:
+            if "lower_bound" in d and "upper_bound" in d:
+                d = dict(d)
+                d["number_of_cells"] = suggest_cells(
+                    d["lower_bound"], d["upper_bound"], d["dx_target"], amr.blocking_factor
+                )
         domain = DomainSpec(**{k: d[k] for k in _DOMAIN_KEYS if k in d})
         solver = SolverSpec(**{k: d[k] for k in _SOLVER_KEYS if k in d})
 
@@ -109,6 +122,7 @@ class HybridPlasmaSpec:
             const_dt=d.get("const_dt", 1.3e-9),
             B0=d.get("B0", [0.0, 0.0, 0.25]),
             diag=diag,
+            amr=amr,
         )
 
 
@@ -207,13 +221,7 @@ diag1.write_species = 0"""
 max_step = {spec.solver.max_steps}
 
 # --- AMR / domain -----------------------------------------------------------
-amr.max_level = 0
-amr.n_cell = {n_cell}
-amr.blocking_factor = 1
-
-geometry.dims = {spec.domain.dim}
-geometry.prob_lo = {prob_lo}
-geometry.prob_hi = {prob_hi}
+{_emit_amr_block(spec.amr, n_cell, prob_lo, prob_hi, spec.domain.dim)}
 
 # --- Boundary conditions ----------------------------------------------------
 boundary.field_lo = {field_lo}

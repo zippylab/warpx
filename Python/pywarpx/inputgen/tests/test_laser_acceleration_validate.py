@@ -98,3 +98,23 @@ def test_laser_explicit_generate_inputs():
     text = generate_inputs_laser_acceleration(spec)
     assert "warpx.cfl" in text
     assert "algo.evolve_scheme" not in text
+
+
+# ---------------------------------------------------------------------------
+# AMR tests
+# ---------------------------------------------------------------------------
+
+def test_laser_amr_plasma_ok():
+    """max_level=1 with tag_by='plasma' → no AMR errors (default n_cell=[64,128] div by 8)."""
+    spec = _spec(amr_max_level=1, amr_blocking_factor=8, amr_tag_by="plasma")
+    r = validate_laser_acceleration_spec(spec)
+    amr_errors = [i for i in r.issues if i.code.startswith("amr.") and i.severity == Severity.ERROR]
+    assert not amr_errors, amr_errors
+
+
+def test_laser_amr_bad_blocking():
+    """n_cell=[60, 128] (60 not div by 8) with max_level=1 → ERROR."""
+    spec = _spec(amr_max_level=1, amr_blocking_factor=8, amr_tag_by="plasma",
+                 number_of_cells=[64, 100])
+    r = validate_laser_acceleration_spec(spec)
+    assert any("amr.blocking_factor.divisibility" in i.code for i in r.issues)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 
 from .blocks import (
+    validate_amr,
     validate_diag,
     validate_domain,
     validate_particle_beam,
@@ -20,6 +21,7 @@ def validate_pwfa_spec(spec: PWFASpec) -> ValidationReport:
     if not r.ok:
         return r
 
+    r.merge(validate_amr(spec.amr, spec.domain))
     r.merge(validate_solver(spec.solver))
     r.merge(validate_species(spec.plasma, spec.domain))
     r.merge(validate_particle_beam(spec.driver, label="driver"))

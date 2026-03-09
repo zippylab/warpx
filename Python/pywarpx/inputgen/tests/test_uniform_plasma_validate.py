@@ -69,3 +69,22 @@ def test_generate_script_parses():
     script = generate_picmi_uniform_plasma(spec)
     r, _ = validate_picmi_syntax(script)
     assert r.ok
+
+
+# ---------------------------------------------------------------------------
+# AMR tests
+# ---------------------------------------------------------------------------
+
+def test_uniform_plasma_amr_ok():
+    """amr_max_level=1 with n_cell=[16,32] divisible by amr_blocking_factor=16 → no AMR errors."""
+    spec = _base_spec(amr_max_level=1, amr_blocking_factor=16)
+    r = validate_uniform_plasma_spec(spec)
+    amr_errors = [i for i in r.issues if i.code.startswith("amr.") and i.severity == Severity.ERROR]
+    assert not amr_errors, amr_errors
+
+
+def test_uniform_plasma_amr_bad_blocking():
+    """n_cell=[15, 32] not divisible by amr_blocking_factor=8 with max_level=1 → ERROR."""
+    spec = _base_spec(amr_max_level=1, amr_blocking_factor=8, number_of_cells=[15, 32])
+    r = validate_uniform_plasma_spec(spec)
+    assert any("amr.blocking_factor" in i.code for i in r.issues)

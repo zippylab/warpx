@@ -5,6 +5,7 @@ from __future__ import annotations
 from .blocks import (
     Severity,
     ValidationReport,
+    validate_amr,
     validate_diag,
     validate_domain,
     validate_eb,
@@ -49,6 +50,7 @@ def validate_electromagnetic_pic_spec(spec: ElectromagneticPICSpec) -> Validatio
     if not r.ok:
         return r
 
+    r.merge(validate_amr(spec.amr, spec.domain))
     r.merge(validate_em_solver(spec.solver))
     r.merge(validate_diag(spec.diag))
 

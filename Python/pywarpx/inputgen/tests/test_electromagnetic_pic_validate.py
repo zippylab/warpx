@@ -264,3 +264,60 @@ def test_em_pic_generate_asymmetric_bc():
     assert lo_line != hi_line
     assert "pml periodic" in lo_line
     assert "pml pml" in hi_line
+
+
+# ---------------------------------------------------------------------------
+# AMR tests
+# ---------------------------------------------------------------------------
+
+def test_em_pic_amr_box_ok():
+    """max_level=1 with valid blocking_factor and fine_tag → no AMR errors."""
+    spec = _spec(
+        amr_max_level=1, amr_blocking_factor=8,
+        fine_tag_lo=[-25e-6, 50e-6], fine_tag_hi=[25e-6, 150e-6],
+    )
+    r = validate_electromagnetic_pic_spec(spec)
+    amr_errors = [i for i in r.issues if i.code.startswith("amr.") and i.severity == Severity.ERROR]
+    assert not amr_errors, amr_errors
+
+
+def test_em_pic_amr_missing_tag():
+    """max_level=1 with tag_by='box' but no fine_tag → ERROR amr.fine_tag.missing."""
+    spec = _spec(amr_max_level=1, amr_blocking_factor=8)
+    r = validate_electromagnetic_pic_spec(spec)
+    assert any(i.code == "amr.fine_tag.missing" for i in r.issues)
+
+
+def test_em_pic_amr_bad_blocking():
+    """n_cell=[100, 256] not divisible by blocking_factor=8 → ERROR."""
+    spec = _spec(
+        amr_max_level=1, amr_blocking_factor=8, amr_tag_by="plasma",
+        number_of_cells=[100, 256],
+    )
+    r = validate_electromagnetic_pic_spec(spec)
+    assert any("amr.blocking_factor.divisibility" in i.code for i in r.issues)
+
+
+def test_em_pic_generate_amr():
+    """Generator emits amr.max_level and warpx.fine_tag_lo when AMR enabled."""
+    spec = _spec(
+        amr_max_level=1, amr_blocking_factor=8,
+        fine_tag_lo=[-25e-6, 50e-6], fine_tag_hi=[25e-6, 150e-6],
+    )
+    text = generate_inputs_electromagnetic_pic(spec)
+    assert "amr.max_level = 1" in text
+    assert "warpx.fine_tag_lo" in text
+    assert "warpx.fine_tag_hi" in text
+    assert "amr.blocking_factor = 8" in text
+
+
+def test_em_pic_dx_target():
+    """dx_target in from_dict auto-computes number_of_cells rounded to blocking_factor."""
+    spec = _spec(
+        lower_bound=[-50e-6, 0.0], upper_bound=[50e-6, 200e-6],
+        dx_target=1e-6, amr_blocking_factor=8,
+    )
+    assert len(spec.domain.number_of_cells) == 2
+    for n in spec.domain.number_of_cells:
+        assert n % 8 == 0
+        assert n > 0

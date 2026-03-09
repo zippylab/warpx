@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .blocks import (
+    validate_amr,
     validate_diag,
     validate_domain,
     validate_implicit_solver,
@@ -21,6 +22,7 @@ def validate_laser_acceleration_spec(spec: LaserAccelerationSpec) -> ValidationR
     if not r.ok:
         return r
 
+    r.merge(validate_amr(spec.amr, spec.domain))
     r.merge(validate_solver(spec.solver))
     r.merge(validate_laser(spec.laser))
     r.merge(validate_species(spec.species, spec.domain))

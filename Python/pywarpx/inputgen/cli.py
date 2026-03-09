@@ -24,6 +24,7 @@ from .magnetic_reconnection_validate import validate_magnetic_reconnection_spec
 from .native import generate_inputs_uniform_plasma
 from .pwfa import PWFASpec, generate_inputs_pwfa
 from .pwfa_validate import validate_pwfa_spec
+from .blocks import suggest_cells
 from .spec import UniformPlasmaSpec
 from .validate import validate_picmi_syntax, validate_uniform_plasma_spec
 
@@ -217,6 +218,21 @@ def main(argv: list[str] | None = None) -> int:
         help="Validate an ElectrostaticPICSpec JSON",
     )
     val_es_pic.add_argument("spec_json", help="Path to JSON spec")
+
+    sc = sub.add_parser(
+        "suggest-cells",
+        help="Given domain bounds and target cell size, compute number_of_cells",
+    )
+    sc.add_argument(
+        "spec_json",
+        nargs="?",
+        default=None,
+        help="Optional JSON file with lower_bound, upper_bound, dx_target, [amr_blocking_factor]",
+    )
+    sc.add_argument("--lower-bound", help="Space-separated lower bound coords (e.g. '0.0 0.0')")
+    sc.add_argument("--upper-bound", help="Space-separated upper bound coords (e.g. '1e-3 1e-3')")
+    sc.add_argument("--dx-target", type=float, help="Target cell size in metres")
+    sc.add_argument("--blocking-factor", type=int, default=8, help="AMReX blocking factor (default: 8)")
 
     args = p.parse_args(argv)
 
@@ -453,6 +469,25 @@ def main(argv: list[str] | None = None) -> int:
         report = validate_electrostatic_pic_spec(spec)
         print(json.dumps({"ok": report.ok, "issues": [i.__dict__ for i in report.issues]}, indent=2, default=str))
         return 0 if report.ok else 2
+
+    if args.cmd == "suggest-cells":
+        if args.spec_json is not None:
+            data = json.loads(Path(args.spec_json).read_text())
+            lo = data["lower_bound"]
+            hi = data["upper_bound"]
+            dx = data["dx_target"]
+            bf = data.get("amr_blocking_factor", args.blocking_factor)
+        else:
+            if args.lower_bound is None or args.upper_bound is None or args.dx_target is None:
+                p.error("suggest-cells requires either spec_json or --lower-bound/--upper-bound/--dx-target")
+            lo = [float(x) for x in args.lower_bound.split()]
+            hi = [float(x) for x in args.upper_bound.split()]
+            dx = args.dx_target
+            bf = args.blocking_factor
+        cells = suggest_cells(lo, hi, dx, bf)
+        dx_actual = [(hi[i] - lo[i]) / cells[i] for i in range(len(cells))]
+        print(json.dumps({"number_of_cells": cells, "blocking_factor": bf, "dx_actual": dx_actual}, indent=2))
+        return 0
 
     raise RuntimeError(f"Unhandled cmd: {args.cmd}")
 
