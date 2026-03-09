@@ -73,6 +73,8 @@ class UniformPlasmaSpec:
     # Diagnostics
     diag_period: int = 10
     diag_fields: List[str] = field(default_factory=lambda: ["E", "B"])  # avoid J by default (not always available)
+    diag_format: str = "plotfile"   # "plotfile" | "openpmd"
+    write_species: bool = False
 
     # WarpX-specific optional knobs
     warpx_max_grid_size: Optional[int] = None
@@ -101,6 +103,8 @@ class UniformPlasmaSpec:
             "current_deposition_algo": self.current_deposition_algo,
             "diag_period": self.diag_period,
             "diag_fields": list(self.diag_fields),
+            "diag_format": self.diag_format,
+            "write_species": self.write_species,
             "warpx_max_grid_size": self.warpx_max_grid_size,
             "amr_max_level": self.amr_max_level,
             "amr_blocking_factor": self.amr_blocking_factor,

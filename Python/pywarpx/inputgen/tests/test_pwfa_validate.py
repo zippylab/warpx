@@ -125,3 +125,31 @@ def test_pwfa_amr_bad_blocking():
                  number_of_cells=[100, 512])
     r = validate_pwfa_spec(spec)
     assert any("amr.blocking_factor.divisibility" in i.code for i in r.issues)
+
+
+# ---------------------------------------------------------------------------
+# PICMI generator smoke tests
+# ---------------------------------------------------------------------------
+
+def test_pwfa_picmi_generates_script():
+    from pywarpx.inputgen.pwfa import generate_picmi_pwfa
+    spec = PWFASpec()
+    script = generate_picmi_pwfa(spec)
+    assert isinstance(script, str) and script
+    assert "from pywarpx import picmi" in script
+
+
+def test_pwfa_picmi_correct_solver():
+    from pywarpx.inputgen.pwfa import generate_picmi_pwfa
+    spec = PWFASpec()
+    script = generate_picmi_pwfa(spec)
+    assert "ElectromagneticSolver" in script
+    assert "GaussianBunchDistribution" in script
+
+
+def test_pwfa_picmi_has_diagnostics():
+    from pywarpx.inputgen.pwfa import generate_picmi_pwfa
+    spec = PWFASpec()
+    script = generate_picmi_pwfa(spec)
+    assert "sim.add_diagnostic" in script
+    assert "sim.initialize_inputs" in script

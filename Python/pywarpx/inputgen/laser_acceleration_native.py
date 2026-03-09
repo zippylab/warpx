@@ -16,7 +16,7 @@ Physical constants (CODATA 2018, matching scipy.constants / picmi):
 import math
 from dataclasses import asdict
 
-from .blocks import _emit_amr_block
+from .blocks import _emit_amr_block, _emit_diag_block
 from .laser_acceleration import LaserAccelerationSpec
 
 # CODATA 2018 values (matches pywarpx / PICMI constants)
@@ -127,15 +127,7 @@ warpx.implicit_solver.theta = {imp.theta:.17g}
     # ------------------------------------------------------------------
     # Use openPMD format for production-quality output.  If libopenPMD is
     # not available on the target system, change format to "plotfile".
-    fields_to_plot = " ".join(spec.diag.diag_fields)
-
-    diag_section = f"""\
-diagnostics.diags_names = diag1
-diag1.diag_type = Full
-diag1.intervals = {spec.diag.diag_period}
-diag1.format = openpmd
-diag1.fields_to_plot = {fields_to_plot}
-diag1.write_species = 0"""
+    diag_section = _emit_diag_block(spec.diag)
 
     # ------------------------------------------------------------------
     # Assemble

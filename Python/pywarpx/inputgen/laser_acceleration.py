@@ -25,6 +25,7 @@ from .blocks import (
     SolverSpec,
     SpeciesSpec,
     _AMR_KEY_MAP,
+    _emit_picmi_diag_lines,
     suggest_cells,
 )
 
@@ -36,7 +37,6 @@ _SOLVER_KEYS = {"max_steps", "cfl", "particle_shape"}
 _SPECIES_KEYS = {"plasma_density", "plasma_zmin", "plasma_zmax"}
 _LASER_KEYS = {"wavelength", "a0", "waist", "duration", "focal_position_z",
                "centroid_position_z"}
-_DIAG_KEYS     = {"diag_period", "diag_fields"}
 _IMPLICIT_KEYS = {"implicit_enabled", "implicit_theta", "implicit_solver_type",
                   "implicit_max_iters", "implicit_tolerance", "implicit_const_dt"}
 
@@ -82,7 +82,7 @@ class LaserAccelerationSpec:
         solver = SolverSpec(**{k: d[k] for k in _SOLVER_KEYS if k in d})
         species = SpeciesSpec(**{k: d[k] for k in _SPECIES_KEYS if k in d})
         laser = LaserSpec(**{k: d[k] for k in _LASER_KEYS if k in d})
-        diag = DiagSpec(**{k: d[k] for k in _DIAG_KEYS if k in d})
+        diag = DiagSpec.from_dict(d)
         imp_kw: dict = {}
         if "implicit_enabled" in d:     imp_kw["enabled"]     = d["implicit_enabled"]
         if "implicit_theta" in d:       imp_kw["theta"]       = d["implicit_theta"]
@@ -117,6 +117,7 @@ def generate_picmi_laser_acceleration(spec: LaserAccelerationSpec) -> str:
     }
 
     antenna_z = spec.domain.lower_bound[-1]
+    diag_code = _emit_picmi_diag_lines(spec.diag, ["electrons", "ions"])
 
     script = f"""#!/usr/bin/env python3
 
@@ -190,13 +191,6 @@ laser = picmi.GaussianLaser(
 _antenna_z = {antenna_z!r} + 1.0e-12
 antenna = picmi.LaserAntenna(position=[0.0, 0.0, _antenna_z], normal_vector=[0, 0, 1])
 
-# Disable full field diagnostics by default in this minimal template.
-# Plotfile writing from multiple MPI ranks can fail if the output directory is
-# shared/contended or pre-exists from a previous run.
-#
-# Re-enable by adding a FieldDiagnostic and a per-run unique write_dir.
-field_diag = None
-
 sim = picmi.Simulation(
     solver=solver,
     max_steps={spec.solver.max_steps!r},
@@ -208,8 +202,8 @@ sim.add_species(electrons, layout=picmi.GriddedLayout(grid=grid, n_macroparticle
 sim.add_species(ions, layout=picmi.GriddedLayout(grid=grid, n_macroparticle_per_cell=[2, 2, 2]))
 
 sim.add_laser(laser, injection_method=antenna)
-if field_diag is not None:
-    sim.add_diagnostic(field_diag)
+
+{diag_code}
 
 sim.initialize_inputs()
 sim.initialize_warpx()

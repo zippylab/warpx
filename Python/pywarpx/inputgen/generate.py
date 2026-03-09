@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from textwrap import dedent
 
+from .blocks import DiagSpec, _emit_picmi_diag_lines
 from .spec import UniformPlasmaSpec
 
 
@@ -43,6 +44,14 @@ def generate_picmi_uniform_plasma(spec: UniformPlasmaSpec) -> str:
     if spec.time_step_size is not None:
         dt_line = f"    time_step_size={spec.time_step_size},\n"
 
+    _diag = DiagSpec(
+        diag_period=spec.diag_period,
+        diag_fields=spec.diag_fields,
+        diag_format=spec.diag_format,
+        write_species=spec.write_species,
+    )
+    diag_code = _emit_picmi_diag_lines(_diag, ["electrons"])
+
     script = f"""#!/usr/bin/env python3
 
 from pywarpx import picmi
@@ -81,14 +90,6 @@ electrons = picmi.Species(
     initial_distribution=uniform,
 )
 
-# Diagnostics
-field_diag = picmi.FieldDiagnostic(
-    name="diag1",
-    grid=grid,
-    period={spec.diag_period!r},
-    data_list={spec.diag_fields!r},
-)
-
 # Simulation
 sim = picmi.Simulation(
     solver=solver,
@@ -105,7 +106,7 @@ sim.add_species(
     layout=picmi.GriddedLayout(grid=grid, n_macroparticle_per_cell=[1]*{spec.dim}),
 )
 
-sim.add_diagnostic(field_diag)
+{diag_code}
 
 # Init + run
 sim.initialize_inputs()

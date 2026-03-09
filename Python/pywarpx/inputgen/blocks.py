@@ -60,13 +60,98 @@ class LaserSpec:
     centroid_position_z: float = 0.0
 
 
+_KNOWN_REDUCED_SIMPLE: frozenset = frozenset({
+    "ParticleEnergy", "ParticleMomentum", "FieldEnergy", "FieldMomentum",
+    "FieldMaximum", "FieldPoyntingFlux", "RhoMaximum", "ParticleNumber",
+    "LoadBalanceCosts", "LoadBalanceEfficiency", "Timestep",
+})
+_KNOWN_REDUCED_SPECIES: frozenset = frozenset({"BeamRelevant", "ParticleExtrema"})
+_KNOWN_REDUCED_ALL: frozenset = (
+    _KNOWN_REDUCED_SIMPLE | _KNOWN_REDUCED_SPECIES
+    | frozenset({"FieldProbe", "FieldReduction", "ParticleHistogram", "ChargeOnEB"})
+)
+
+
+@dataclass
+class ReducedDiagSpec:
+    """A single WarpX reduced diagnostic entry.
+
+    ``type`` selects the diagnostic kind (e.g. ``"FieldEnergy"``,
+    ``"FieldProbe"``, ``"ParticleHistogram"``).  ``name`` is the ParmParse
+    prefix; if empty it is auto-derived from ``type`` by lowercasing.
+    ``period`` (0 = use parent DiagSpec.diag_period) sets the output interval.
+
+    FieldProbe fields:
+        probe_geometry: "Point" | "Line" | "Plane"
+        x/y/z_probe: probe position; z1_probe: Line end point
+        resolution: number of points (Line/Plane); interp_order; integrate
+
+    FieldReduction fields:
+        reduction_type: "Maximum" | "Minimum" | "Integral"
+        reduced_function: analytic expression of (x,y,z,Ex,Ey,Ez,Bx,By,Bz,jx,jy,jz)
+
+    Particle-species fields (BeamRelevant, ParticleExtrema, ParticleHistogram):
+        species: species name string
+
+    ParticleHistogram fields:
+        bin_number, bin_min, bin_max, histogram_function, normalization, filter_function
+
+    ChargeOnEB fields:
+        weighting_function: optional analytic expression of (x,y,z)
+    """
+    type: str = ""                       # required; must be in _KNOWN_REDUCED_ALL
+    name: str = ""                       # auto = type.lower() if empty
+    period: int = 0                      # 0 → use parent DiagSpec.diag_period
+    path: str = "diags/"
+    # FieldProbe
+    probe_geometry: str = "Point"        # "Point" | "Line" | "Plane"
+    x_probe: float = 0.0
+    y_probe: float = 0.0
+    z_probe: float = 0.0
+    z1_probe: float = 0.0               # Line end point
+    resolution: int = 64                 # Line / Plane point count
+    interp_order: int = 1
+    integrate: bool = False
+    # FieldReduction
+    reduction_type: str = ""             # "Maximum" | "Minimum" | "Integral"
+    reduced_function: str = ""           # analytic expression
+    # Particle-species diagnostics
+    species: str = ""                    # for BeamRelevant, ParticleExtrema, ParticleHistogram
+    bin_number: int = 0
+    bin_min: float = 0.0
+    bin_max: float = 0.0
+    histogram_function: str = ""
+    normalization: str = ""              # "unity_particle_weight"|"max_to_unity"|"area_to_unity"
+    filter_function: str = ""
+    # ChargeOnEB
+    weighting_function: str = ""
+
+
 @dataclass
 class DiagSpec:
-    """Diagnostics output parameters."""
+    """Diagnostics output parameters (full diagnostics + reduced diagnostics).
+
+    The main "Full" field diagnostic is controlled by ``diag_period``,
+    ``diag_fields``, ``diag_format``, and ``write_species``.
+
+    ``reduced_diags`` is a list of :class:`ReducedDiagSpec` entries that map
+    to WarpX reduced diagnostics (scalar TSV output, one row per timestep).
+    """
     diag_period: int = 50
     diag_fields: List[str] = field(
         default_factory=lambda: ["Ex", "Ey", "Ez", "Bx", "By", "Bz"]
     )
+    diag_format: str = "openpmd"         # "openpmd" | "plotfile"
+    write_species: bool = False          # write particle data in the field diagnostic
+    reduced_diags: List[ReducedDiagSpec] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "DiagSpec":
+        """Extract DiagSpec fields from a flat JSON dict."""
+        kw = {k: d[k] for k in ("diag_period", "diag_fields", "diag_format", "write_species")
+              if k in d}
+        rds = [ReducedDiagSpec(**e) for e in d.get("reduced_diags", [])]
+        return cls(**kw, reduced_diags=rds)
 
 
 # ---------------------------------------------------------------------------
@@ -185,6 +270,36 @@ def validate_diag(diag: DiagSpec) -> ValidationReport:
     if not diag.diag_fields:
         r.add(Severity.WARNING, "diag.fields_empty",
               "diag_fields is empty — no field data will be written")
+
+    for i, rd in enumerate(diag.reduced_diags):
+        prefix = f"diag.reduced[{i}]"
+        if rd.type not in _KNOWN_REDUCED_ALL:
+            r.add(Severity.ERROR, f"{prefix}.unknown_type",
+                  f"Unknown reduced diagnostic type '{rd.type}'. "
+                  f"Valid types: {sorted(_KNOWN_REDUCED_ALL)}",
+                  type=rd.type)
+            continue
+        if rd.type == "FieldProbe":
+            if rd.probe_geometry not in ("Point", "Line", "Plane"):
+                r.add(Severity.ERROR, f"{prefix}.probe_geometry",
+                      "probe_geometry must be 'Point', 'Line', or 'Plane'",
+                      probe_geometry=rd.probe_geometry)
+        if rd.type == "FieldReduction":
+            if rd.reduction_type not in ("Maximum", "Minimum", "Integral"):
+                r.add(Severity.ERROR, f"{prefix}.reduction_type",
+                      "reduction_type must be 'Maximum', 'Minimum', or 'Integral'",
+                      reduction_type=rd.reduction_type)
+            if not rd.reduced_function.strip():
+                r.add(Severity.ERROR, f"{prefix}.reduced_function",
+                      "reduced_function must be set for FieldReduction")
+        if rd.type in (_KNOWN_REDUCED_SPECIES | {"ParticleHistogram"}):
+            if not rd.species.strip():
+                r.add(Severity.ERROR, f"{prefix}.species",
+                      f"species must be set for {rd.type}")
+        if rd.type == "ParticleHistogram" and rd.bin_number <= 0:
+            r.add(Severity.ERROR, f"{prefix}.bin_number",
+                  "bin_number must be > 0 for ParticleHistogram",
+                  bin_number=rd.bin_number)
 
     return r
 
@@ -985,3 +1100,164 @@ def _emit_amr_block(
     lines.append(f"geometry.prob_hi = {prob_hi}")
 
     return "\n".join(lines)
+
+
+def _emit_diag_block(diag: DiagSpec, name: str = "diag1") -> str:
+    """Emit the full diagnostics ParmParse block for a native (binary) generator.
+
+    Emits the main "Full" field diagnostic block plus any reduced diagnostics
+    listed in ``diag.reduced_diags``.
+
+    Returns a string ready for insertion into a ParmParse inputs file.
+    """
+    fields_to_plot = " ".join(diag.diag_fields)
+    write_sp = 1 if diag.write_species else 0
+
+    lines: List[str] = [
+        f"diagnostics.diags_names = {name}",
+        f"{name}.diag_type = Full",
+        f"{name}.intervals = {diag.diag_period}",
+        f"{name}.format = {diag.diag_format}",
+        f"{name}.fields_to_plot = {fields_to_plot}",
+        f"{name}.write_species = {write_sp}",
+    ]
+
+    if diag.reduced_diags:
+        rd_names = [rd.name or rd.type.lower() for rd in diag.reduced_diags]
+        lines.append("")
+        lines.append(f"warpx.reduced_diags_names = {' '.join(rd_names)}")
+        for rd, rd_name in zip(diag.reduced_diags, rd_names):
+            interval = rd.period if rd.period > 0 else diag.diag_period
+            lines.append(f"{rd_name}.type = {rd.type}")
+            lines.append(f"{rd_name}.intervals = {interval}")
+            lines.append(f"{rd_name}.path = {rd.path}")
+            if rd.type == "FieldProbe":
+                lines.append(f"{rd_name}.probe_geometry = {rd.probe_geometry}")
+                lines.append(f"{rd_name}.x_probe = {rd.x_probe}")
+                lines.append(f"{rd_name}.y_probe = {rd.y_probe}")
+                lines.append(f"{rd_name}.z_probe = {rd.z_probe}")
+                if rd.probe_geometry in ("Line", "Plane"):
+                    lines.append(f"{rd_name}.z1_probe = {rd.z1_probe}")
+                    lines.append(f"{rd_name}.resolution = {rd.resolution}")
+                if rd.interp_order != 1:
+                    lines.append(f"{rd_name}.interp_order = {rd.interp_order}")
+                if rd.integrate:
+                    lines.append(f"{rd_name}.integrate = 1")
+            elif rd.type == "FieldReduction":
+                lines.append(f"{rd_name}.reduction_type = {rd.reduction_type}")
+                lines.append(
+                    f"{rd_name}.reduced_function(x,y,z,Ex,Ey,Ez,Bx,By,Bz,jx,jy,jz)"
+                    f" = {rd.reduced_function}"
+                )
+            elif rd.type in _KNOWN_REDUCED_SPECIES:
+                lines.append(f"{rd_name}.species = {rd.species}")
+            elif rd.type == "ParticleHistogram":
+                lines.append(f"{rd_name}.species = {rd.species}")
+                lines.append(f"{rd_name}.bin_number = {rd.bin_number}")
+                lines.append(f"{rd_name}.bin_min = {rd.bin_min}")
+                lines.append(f"{rd_name}.bin_max = {rd.bin_max}")
+                lines.append(f"{rd_name}.histogram_function(t,x,y,z,ux,uy,uz)"
+                              f" = {rd.histogram_function}")
+                if rd.normalization:
+                    lines.append(f"{rd_name}.normalization = {rd.normalization}")
+                if rd.filter_function.strip():
+                    lines.append(f"{rd_name}.filter_function(t,x,y,z,ux,uy,uz)"
+                                  f" = {rd.filter_function}")
+            elif rd.type == "ChargeOnEB" and rd.weighting_function.strip():
+                lines.append(f"{rd_name}.weighting_function(x,y,z)"
+                              f" = {rd.weighting_function}")
+
+    return "\n".join(lines)
+
+
+def _emit_picmi_diag_lines(
+    diag: DiagSpec,
+    species_var_names: Optional[List[str]] = None,
+) -> str:
+    """Return Python source lines for diagnostics in a generated PICMI script.
+
+    The returned string contains:
+    - A ``picmi.FieldDiagnostic`` creation and ``sim.add_diagnostic(...)`` call.
+    - If ``diag.write_species`` is True and ``species_var_names`` is provided,
+      a ``picmi.ParticleDiagnostic`` block for all species.
+    - A ``picmi.ReducedDiagnostic`` block for each entry in ``diag.reduced_diags``.
+
+    The returned code assumes ``grid``, ``sim``, and all species variables are
+    already defined in the surrounding script context.
+    """
+    if species_var_names is None:
+        species_var_names = []
+
+    parts: List[str] = ["# -- Diagnostics --"]
+
+    # Main field diagnostic
+    parts.append(
+        f"field_diag = picmi.FieldDiagnostic(\n"
+        f"    name='field_diag',\n"
+        f"    grid=grid,\n"
+        f"    period={diag.diag_period},\n"
+        f"    data_list={diag.diag_fields!r},\n"
+        f"    warpx_format={diag.diag_format!r},\n"
+        f")"
+    )
+    parts.append("sim.add_diagnostic(field_diag)")
+
+    # Particle diagnostic (if requested)
+    if diag.write_species and species_var_names:
+        sp_list = ", ".join(species_var_names)
+        parts.append(
+            f"ptcl_diag = picmi.ParticleDiagnostic(\n"
+            f"    name='ptcl_diag',\n"
+            f"    period={diag.diag_period},\n"
+            f"    species=[{sp_list}],\n"
+            f"    warpx_format={diag.diag_format!r},\n"
+            f")"
+        )
+        parts.append("sim.add_diagnostic(ptcl_diag)")
+
+    # Reduced diagnostics
+    for rd in diag.reduced_diags:
+        rd_var = rd.name or rd.type.lower()
+        rd_period = rd.period if rd.period > 0 else diag.diag_period
+        kw_lines = [
+            f"    diag_type={rd.type!r},",
+            f"    name={rd_var!r},",
+            f"    period={rd_period},",
+            f"    path={rd.path!r},",
+        ]
+        if rd.type == "FieldProbe":
+            kw_lines.append(f"    probe_geometry={rd.probe_geometry!r},")
+            kw_lines.append(f"    x_probe={rd.x_probe!r},")
+            kw_lines.append(f"    y_probe={rd.y_probe!r},")
+            kw_lines.append(f"    z_probe={rd.z_probe!r},")
+            if rd.probe_geometry in ("Line", "Plane"):
+                kw_lines.append(f"    z1_probe={rd.z1_probe!r},")
+                kw_lines.append(f"    resolution={rd.resolution!r},")
+            if rd.interp_order != 1:
+                kw_lines.append(f"    interp_order={rd.interp_order!r},")
+            if rd.integrate:
+                kw_lines.append("    integrate=True,")
+        elif rd.type == "FieldReduction":
+            kw_lines.append(f"    reduction_type={rd.reduction_type!r},")
+            kw_lines.append(f"    reduced_function={rd.reduced_function!r},")
+        elif rd.type in _KNOWN_REDUCED_SPECIES:
+            kw_lines.append(f"    species={rd.species},  # pass the species object")
+        elif rd.type == "ParticleHistogram":
+            kw_lines.append(f"    species={rd.species},  # pass the species object")
+            kw_lines.append(f"    bin_number={rd.bin_number!r},")
+            kw_lines.append(f"    bin_min={rd.bin_min!r},")
+            kw_lines.append(f"    bin_max={rd.bin_max!r},")
+            kw_lines.append(f"    histogram_function={rd.histogram_function!r},")
+            if rd.normalization:
+                kw_lines.append(f"    normalization={rd.normalization!r},")
+            if rd.filter_function.strip():
+                kw_lines.append(f"    filter_function={rd.filter_function!r},")
+        elif rd.type == "ChargeOnEB" and rd.weighting_function.strip():
+            kw_lines.append(f"    weighting_function={rd.weighting_function!r},")
+        kw_str = "\n".join(kw_lines)
+        parts.append(
+            f"{rd_var} = picmi.ReducedDiagnostic(\n{kw_str}\n)"
+        )
+        parts.append(f"sim.add_diagnostic({rd_var})")
+
+    return "\n".join(parts)

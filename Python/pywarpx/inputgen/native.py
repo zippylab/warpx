@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from textwrap import dedent
 
+from .blocks import DiagSpec, _emit_diag_block
 from .spec import UniformPlasmaSpec
 
 
@@ -65,15 +66,13 @@ def generate_inputs_uniform_plasma(spec: UniformPlasmaSpec) -> str:
     for f in spec.diag_fields:
         fields_to_plot.extend(field_map.get(f, [f]))
 
-    diag_lines = dedent(
-        f"""
-        diagnostics.diags_names = diag1
-        diag1.diag_type = Full
-        diag1.intervals = {spec.diag_period}
-        diag1.format = plotfile
-        diag1.fields_to_plot = {' '.join(fields_to_plot)}
-        """
-    ).strip()
+    _diag = DiagSpec(
+        diag_period=spec.diag_period,
+        diag_fields=fields_to_plot,
+        diag_format=spec.diag_format,
+        write_species=spec.write_species,
+    )
+    diag_lines = _emit_diag_block(_diag)
 
     # Particles per cell each dim: pad to 3 as well
     ppc_each_dim = " ".join(str(x) for x in _pad_to_3([1] * spec.dim, 1))

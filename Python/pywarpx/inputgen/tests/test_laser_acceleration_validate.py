@@ -118,3 +118,31 @@ def test_laser_amr_bad_blocking():
                  number_of_cells=[64, 100])
     r = validate_laser_acceleration_spec(spec)
     assert any("amr.blocking_factor.divisibility" in i.code for i in r.issues)
+
+
+# ---------------------------------------------------------------------------
+# PICMI generator smoke tests
+# ---------------------------------------------------------------------------
+
+def test_laser_picmi_generates_script():
+    from pywarpx.inputgen.laser_acceleration import generate_picmi_laser_acceleration
+    spec = LaserAccelerationSpec()
+    script = generate_picmi_laser_acceleration(spec)
+    assert isinstance(script, str) and script
+    assert "from pywarpx import picmi" in script
+
+
+def test_laser_picmi_correct_solver():
+    from pywarpx.inputgen.laser_acceleration import generate_picmi_laser_acceleration
+    spec = LaserAccelerationSpec()
+    script = generate_picmi_laser_acceleration(spec)
+    assert "ElectromagneticSolver" in script
+    assert "GaussianLaser" in script
+
+
+def test_laser_picmi_has_diagnostics():
+    from pywarpx.inputgen.laser_acceleration import generate_picmi_laser_acceleration
+    spec = LaserAccelerationSpec()
+    script = generate_picmi_laser_acceleration(spec)
+    assert "sim.add_diagnostic" in script
+    assert "sim.initialize_inputs" in script

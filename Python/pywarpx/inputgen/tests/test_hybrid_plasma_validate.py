@@ -94,3 +94,30 @@ def test_hybrid_amr_bad_blocking():
                  number_of_cells=[100, 512])
     r = validate_hybrid_plasma_spec(spec)
     assert any("amr.blocking_factor.divisibility" in i.code for i in r.issues)
+
+
+# ---------------------------------------------------------------------------
+# PICMI generator smoke tests
+# ---------------------------------------------------------------------------
+
+def test_hybrid_picmi_generates_script():
+    from pywarpx.inputgen.hybrid_plasma import generate_picmi_hybrid_plasma
+    spec = HybridPlasmaSpec()
+    script = generate_picmi_hybrid_plasma(spec)
+    assert isinstance(script, str) and script
+    assert "from pywarpx import picmi" in script
+
+
+def test_hybrid_picmi_correct_solver():
+    from pywarpx.inputgen.hybrid_plasma import generate_picmi_hybrid_plasma
+    spec = HybridPlasmaSpec()
+    script = generate_picmi_hybrid_plasma(spec)
+    assert "HybridPICSolver" in script
+
+
+def test_hybrid_picmi_has_diagnostics():
+    from pywarpx.inputgen.hybrid_plasma import generate_picmi_hybrid_plasma
+    spec = HybridPlasmaSpec()
+    script = generate_picmi_hybrid_plasma(spec)
+    assert "sim.add_diagnostic" in script
+    assert "sim.initialize_inputs" in script

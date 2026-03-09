@@ -100,3 +100,30 @@ def test_beam_amr_bad_blocking():
                  number_of_cells=[100, 512])
     r = validate_ion_beam_instability_spec(spec)
     assert any("amr.blocking_factor.divisibility" in i.code for i in r.issues)
+
+
+# ---------------------------------------------------------------------------
+# PICMI generator smoke tests
+# ---------------------------------------------------------------------------
+
+def test_beam_picmi_generates_script():
+    from pywarpx.inputgen.ion_beam_instability import generate_picmi_ion_beam_instability
+    spec = IonBeamInstabilitySpec()
+    script = generate_picmi_ion_beam_instability(spec)
+    assert isinstance(script, str) and script
+    assert "from pywarpx import picmi" in script
+
+
+def test_beam_picmi_correct_solver():
+    from pywarpx.inputgen.ion_beam_instability import generate_picmi_ion_beam_instability
+    spec = IonBeamInstabilitySpec()
+    script = generate_picmi_ion_beam_instability(spec)
+    assert "HybridPICSolver" in script
+
+
+def test_beam_picmi_has_diagnostics():
+    from pywarpx.inputgen.ion_beam_instability import generate_picmi_ion_beam_instability
+    spec = IonBeamInstabilitySpec()
+    script = generate_picmi_ion_beam_instability(spec)
+    assert "sim.add_diagnostic" in script
+    assert "sim.initialize_inputs" in script

@@ -114,3 +114,30 @@ def test_reconnect_amr_bad_blocking():
                  number_of_cells=[100, 256])
     r = validate_magnetic_reconnection_spec(spec)
     assert any("amr.blocking_factor.divisibility" in i.code for i in r.issues)
+
+
+# ---------------------------------------------------------------------------
+# PICMI generator smoke tests
+# ---------------------------------------------------------------------------
+
+def test_reconnect_picmi_generates_script():
+    from pywarpx.inputgen.magnetic_reconnection import generate_picmi_magnetic_reconnection
+    spec = MagneticReconnectionSpec()
+    script = generate_picmi_magnetic_reconnection(spec)
+    assert isinstance(script, str) and script
+    assert "from pywarpx import picmi" in script
+
+
+def test_reconnect_picmi_correct_solver():
+    from pywarpx.inputgen.magnetic_reconnection import generate_picmi_magnetic_reconnection
+    spec = MagneticReconnectionSpec()
+    script = generate_picmi_magnetic_reconnection(spec)
+    assert "HybridPICSolver" in script
+
+
+def test_reconnect_picmi_has_diagnostics():
+    from pywarpx.inputgen.magnetic_reconnection import generate_picmi_magnetic_reconnection
+    spec = MagneticReconnectionSpec()
+    script = generate_picmi_magnetic_reconnection(spec)
+    assert "sim.add_diagnostic" in script
+    assert "sim.initialize_inputs" in script

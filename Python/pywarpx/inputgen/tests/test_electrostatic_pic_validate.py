@@ -202,3 +202,30 @@ def test_es_pic_dx_target():
     for n in spec.domain.number_of_cells:
         assert n % 8 == 0
         assert n > 0
+
+
+# ---------------------------------------------------------------------------
+# PICMI generator smoke tests
+# ---------------------------------------------------------------------------
+
+def test_es_pic_picmi_generates_script():
+    from pywarpx.inputgen.electrostatic_pic import generate_picmi_electrostatic_pic
+    spec = _spec()
+    script = generate_picmi_electrostatic_pic(spec)
+    assert isinstance(script, str) and script
+    assert "from pywarpx import picmi" in script
+
+
+def test_es_pic_picmi_correct_solver():
+    from pywarpx.inputgen.electrostatic_pic import generate_picmi_electrostatic_pic
+    spec = _spec()
+    script = generate_picmi_electrostatic_pic(spec)
+    assert "ElectrostaticSolver" in script
+
+
+def test_es_pic_picmi_has_diagnostics():
+    from pywarpx.inputgen.electrostatic_pic import generate_picmi_electrostatic_pic
+    spec = _spec()
+    script = generate_picmi_electrostatic_pic(spec)
+    assert "sim.add_diagnostic" in script
+    assert "sim.initialize_inputs" in script

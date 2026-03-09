@@ -39,6 +39,8 @@ from .blocks import (
     SpeciesDefSpec,
     _AMR_KEY_MAP,
     _emit_amr_block,
+    _emit_diag_block,
+    _emit_picmi_diag_lines,
     suggest_cells,
 )
 
@@ -57,7 +59,6 @@ _EM_SOLVER_KEYS = {
     "max_steps", "cfl", "particle_shape", "maxwell_solver",
     "particle_pusher", "current_deposition",
 }
-_DIAG_KEYS = {"diag_period", "diag_fields"}
 _EB_KEYS = {"eb_implicit_function", "eb_potential", "stl_file"}
 _EXT_BFIELD_KEYS = {"Bx_expression", "By_expression", "Bz_expression"}
 _LASER_KEYS = {
@@ -158,7 +159,7 @@ class ElectromagneticPICSpec:
                 )
         domain = DomainSpec(**{k: d[k] for k in _DOMAIN_KEYS if k in d})
         solver = EMSolverSpec(**{k: d[k] for k in _EM_SOLVER_KEYS if k in d})
-        diag = DiagSpec(**{k: d[k] for k in _DIAG_KEYS if k in d})
+        diag = DiagSpec.from_dict(d)
 
         species = [SpeciesDefSpec(**e) for e in d.get("species", [])]
         collisions = [CollisionSpec(**e) for e in d.get("collisions", [])]
@@ -532,14 +533,7 @@ eb2.stl_file = {eb.stl_file}
     # ------------------------------------------------------------------
     # Diagnostics
     # ------------------------------------------------------------------
-    fields_to_plot = " ".join(spec.diag.diag_fields)
-    diag_section = f"""\
-diagnostics.diags_names = diag1
-diag1.diag_type = Full
-diag1.intervals = {spec.diag.diag_period}
-diag1.format = openpmd
-diag1.fields_to_plot = {fields_to_plot}
-diag1.write_species = 0"""
+    diag_section = _emit_diag_block(spec.diag)
 
     # ------------------------------------------------------------------
     # Assemble
@@ -592,3 +586,110 @@ particles.species_names = {species_names}
 # --- Diagnostics -------------------------------------------------------------
 {diag_section}
 """
+
+
+_GRID_CLASS_EM = {1: "Cartesian1DGrid", 2: "Cartesian2DGrid", 3: "Cartesian3DGrid"}
+
+
+def generate_picmi_electromagnetic_pic(spec: ElectromagneticPICSpec) -> str:
+    """Generate a PICMI script for an EM-PIC simulation.
+
+    Species momentum: if temperature_eV > 0, uses gaussian thermal distribution;
+    if injection_style is 'gaussian_beam', uses GaussianBunchDistribution;
+    otherwise constant (cold) distribution.
+    """
+    grid_class = _GRID_CLASS_EM[spec.domain.dim]
+    sp_var_names = [sp.name for sp in spec.species if sp.injection_style != "none"]
+    diag_code = _emit_picmi_diag_lines(spec.diag, sp_var_names)
+
+    # Build species PICMI code fragment
+    species_lines = []
+    for sp in spec.species:
+        n = sp.name
+        if sp.injection_style == "none":
+            # Product/secondary species — no initial injection
+            species_lines.append(
+                f"# {n}: secondary species (no initial injection)\n"
+                f"{n} = picmi.Species(name={n!r}, charge_state={sp.charge!r}, mass={sp.mass_amu * _AMU!r})"
+            )
+        elif sp.injection_style == "gaussian_beam":
+            dist_var = f"{n}_dist"
+            species_lines.append(
+                f"{dist_var} = picmi.GaussianBunchDistribution(\n"
+                f"    n_physical_particles=abs({sp.q_tot!r} / picmi.constants.q_e),\n"
+                f"    rms_bunch_size=[{sp.x_rms!r}, {sp.y_rms!r}, {sp.z_rms!r}],\n"
+                f"    bunch_rms_velocity=[0.0, 0.0, {sp.uz_th!r}],\n"
+                f"    directed_velocity=[0.0, 0.0, {sp.uz_m!r}],\n"
+                f"    centroid_position=[0.0, 0.0, {sp.z_mean!r}],\n"
+                f")\n"
+                f"{n} = picmi.Species(name={n!r}, charge_state={sp.charge!r}, mass={sp.mass_amu * _AMU!r},\n"
+                f"    initial_distribution={dist_var})"
+            )
+        else:
+            dist_var = f"{n}_dist"
+            if sp.temperature_eV > 0:
+                mass_kg = sp.mass_amu * _AMU
+                u_th = math.sqrt(sp.temperature_eV * _Q_E / mass_kg) / _C
+                species_lines.append(
+                    f"{dist_var} = picmi.UniformDistribution(\n"
+                    f"    density={sp.density!r}, fill_in=True,\n"
+                    f"    rms_velocity=[{u_th!r}, {u_th!r}, {u_th!r}],\n"
+                    f"    directed_velocity=[{sp.ux_m!r}, {sp.uy_m!r}, {sp.uz_m!r}],\n"
+                    f")\n"
+                    f"{n} = picmi.Species(name={n!r}, charge_state={sp.charge!r}, mass={sp.mass_amu * _AMU!r},\n"
+                    f"    initial_distribution={dist_var})"
+                )
+            else:
+                species_lines.append(
+                    f"{dist_var} = picmi.UniformDistribution(density={sp.density!r}, fill_in=True)\n"
+                    f"{n} = picmi.Species(name={n!r}, charge_state={sp.charge!r}, mass={sp.mass_amu * _AMU!r},\n"
+                    f"    initial_distribution={dist_var})"
+                )
+
+    species_code = "\n\n".join(species_lines)
+
+    add_species_lines = "\n".join(
+        f"sim.add_species({sp.name}, layout=picmi.GriddedLayout(grid=grid, n_macroparticle_per_cell=[{sp.ppc}]))"
+        for sp in spec.species if sp.injection_style not in ("none", "gaussian_beam")
+    ) + "\n" + "\n".join(
+        f"sim.add_species({sp.name}, layout=picmi.PseudoRandomLayout(n_macroparticles={sp.n_macro}))"
+        for sp in spec.species if sp.injection_style == "gaussian_beam"
+    )
+
+    d = {"name": spec.name, "domain": asdict(spec.domain), "solver": asdict(spec.solver)}
+    maxwell_method = spec.solver.maxwell_solver.upper() if spec.solver.maxwell_solver != "yee" else "Yee"
+
+    script = f"""#!/usr/bin/env python3
+# Auto-generated by warpx-inputgen (electromagnetic_pic PICMI).
+from pywarpx import picmi
+
+SPEC = {d!r}
+
+grid = picmi.{grid_class}(
+    number_of_cells={spec.domain.number_of_cells!r},
+    lower_bound={spec.domain.lower_bound!r},
+    upper_bound={spec.domain.upper_bound!r},
+    lower_boundary_conditions={spec.domain.field_bc!r},
+    upper_boundary_conditions={spec.domain.field_bc!r},
+)
+
+solver = picmi.ElectromagneticSolver(grid=grid, method={maxwell_method!r}, cfl={spec.solver.cfl!r})
+
+# --- Species ---
+{species_code}
+
+sim = picmi.Simulation(
+    solver=solver,
+    max_steps={spec.solver.max_steps!r},
+    particle_shape={spec.solver.particle_shape!r},
+)
+
+{add_species_lines}
+
+{diag_code}
+
+sim.initialize_inputs()
+sim.initialize_warpx()
+sim.step({spec.solver.max_steps!r})
+"""
+    return script.lstrip()

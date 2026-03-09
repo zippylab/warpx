@@ -184,3 +184,30 @@ def test_es_amr_bad_blocking():
                  number_of_cells=[100, 512])
     r = validate_electrostatic_plasma_spec(spec)
     assert any("amr.blocking_factor.divisibility" in i.code for i in r.issues)
+
+
+# ---------------------------------------------------------------------------
+# PICMI generator smoke tests
+# ---------------------------------------------------------------------------
+
+def test_es_plasma_picmi_generates_script():
+    from pywarpx.inputgen.electrostatic_plasma import generate_picmi_electrostatic_plasma
+    spec = ElectrostaticPlasmaSpec()
+    script = generate_picmi_electrostatic_plasma(spec)
+    assert isinstance(script, str) and script
+    assert "from pywarpx import picmi" in script
+
+
+def test_es_plasma_picmi_correct_solver():
+    from pywarpx.inputgen.electrostatic_plasma import generate_picmi_electrostatic_plasma
+    spec = ElectrostaticPlasmaSpec()
+    script = generate_picmi_electrostatic_plasma(spec)
+    assert "ElectrostaticSolver" in script
+
+
+def test_es_plasma_picmi_has_diagnostics():
+    from pywarpx.inputgen.electrostatic_plasma import generate_picmi_electrostatic_plasma
+    spec = ElectrostaticPlasmaSpec()
+    script = generate_picmi_electrostatic_plasma(spec)
+    assert "sim.add_diagnostic" in script
+    assert "sim.initialize_inputs" in script

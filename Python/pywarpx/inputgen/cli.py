@@ -5,24 +5,48 @@ import json
 import sys
 from pathlib import Path
 
-from .electromagnetic_pic import ElectromagneticPICSpec, generate_inputs_electromagnetic_pic
+from .electromagnetic_pic import (
+    ElectromagneticPICSpec,
+    generate_inputs_electromagnetic_pic,
+    generate_picmi_electromagnetic_pic,
+)
 from .electromagnetic_pic_validate import validate_electromagnetic_pic_spec
-from .electrostatic_pic import ElectrostaticPICSpec, generate_inputs_electrostatic_pic
+from .electrostatic_pic import (
+    ElectrostaticPICSpec,
+    generate_inputs_electrostatic_pic,
+    generate_picmi_electrostatic_pic,
+)
 from .electrostatic_pic_validate import validate_electrostatic_pic_spec
-from .electrostatic_plasma import ElectrostaticPlasmaSpec, generate_inputs_electrostatic_plasma
+from .electrostatic_plasma import (
+    ElectrostaticPlasmaSpec,
+    generate_inputs_electrostatic_plasma,
+    generate_picmi_electrostatic_plasma,
+)
 from .electrostatic_plasma_validate import validate_electrostatic_plasma_spec
 from .generate import generate_picmi_uniform_plasma
-from .hybrid_plasma import HybridPlasmaSpec, generate_inputs_hybrid_plasma
+from .hybrid_plasma import (
+    HybridPlasmaSpec,
+    generate_inputs_hybrid_plasma,
+    generate_picmi_hybrid_plasma,
+)
 from .hybrid_plasma_validate import validate_hybrid_plasma_spec
-from .ion_beam_instability import IonBeamInstabilitySpec, generate_inputs_ion_beam_instability
+from .ion_beam_instability import (
+    IonBeamInstabilitySpec,
+    generate_inputs_ion_beam_instability,
+    generate_picmi_ion_beam_instability,
+)
 from .ion_beam_instability_validate import validate_ion_beam_instability_spec
 from .laser_acceleration import LaserAccelerationSpec, generate_picmi_laser_acceleration
 from .laser_acceleration_native import generate_inputs_laser_acceleration
 from .laser_acceleration_validate import validate_laser_acceleration_spec
-from .magnetic_reconnection import MagneticReconnectionSpec, generate_inputs_magnetic_reconnection
+from .magnetic_reconnection import (
+    MagneticReconnectionSpec,
+    generate_inputs_magnetic_reconnection,
+    generate_picmi_magnetic_reconnection,
+)
 from .magnetic_reconnection_validate import validate_magnetic_reconnection_spec
 from .native import generate_inputs_uniform_plasma
-from .pwfa import PWFASpec, generate_inputs_pwfa
+from .pwfa import PWFASpec, generate_inputs_pwfa, generate_picmi_pwfa
 from .pwfa_validate import validate_pwfa_spec
 from .blocks import suggest_cells
 from .spec import UniformPlasmaSpec
@@ -218,6 +242,55 @@ def main(argv: list[str] | None = None) -> int:
         help="Validate an ElectrostaticPICSpec JSON",
     )
     val_es_pic.add_argument("spec_json", help="Path to JSON spec")
+
+    gen_em_pic_picmi = sub.add_parser(
+        "gen-electromagnetic-pic",
+        help="Generate a PICMI script from an ElectromagneticPICSpec JSON",
+    )
+    gen_em_pic_picmi.add_argument("spec_json", help="Path to JSON spec")
+    gen_em_pic_picmi.add_argument("--out", required=True, help="Output PICMI script path")
+
+    gen_es_pic_picmi = sub.add_parser(
+        "gen-electrostatic-pic",
+        help="Generate a PICMI script from an ElectrostaticPICSpec JSON",
+    )
+    gen_es_pic_picmi.add_argument("spec_json", help="Path to JSON spec")
+    gen_es_pic_picmi.add_argument("--out", required=True, help="Output PICMI script path")
+
+    gen_hybrid_picmi = sub.add_parser(
+        "gen-hybrid-plasma",
+        help="Generate a PICMI script from a HybridPlasmaSpec JSON",
+    )
+    gen_hybrid_picmi.add_argument("spec_json", help="Path to JSON spec")
+    gen_hybrid_picmi.add_argument("--out", required=True, help="Output PICMI script path")
+
+    gen_es_plasma_picmi = sub.add_parser(
+        "gen-electrostatic-plasma",
+        help="Generate a PICMI script from an ElectrostaticPlasmaSpec JSON",
+    )
+    gen_es_plasma_picmi.add_argument("spec_json", help="Path to JSON spec")
+    gen_es_plasma_picmi.add_argument("--out", required=True, help="Output PICMI script path")
+
+    gen_pwfa_picmi = sub.add_parser(
+        "gen-pwfa",
+        help="Generate a PICMI script from a PWFASpec JSON",
+    )
+    gen_pwfa_picmi.add_argument("spec_json", help="Path to JSON spec")
+    gen_pwfa_picmi.add_argument("--out", required=True, help="Output PICMI script path")
+
+    gen_recon_picmi = sub.add_parser(
+        "gen-magnetic-reconnection",
+        help="Generate a PICMI script from a MagneticReconnectionSpec JSON",
+    )
+    gen_recon_picmi.add_argument("spec_json", help="Path to JSON spec")
+    gen_recon_picmi.add_argument("--out", required=True, help="Output PICMI script path")
+
+    gen_beam_picmi = sub.add_parser(
+        "gen-ion-beam-instability",
+        help="Generate a PICMI script from an IonBeamInstabilitySpec JSON",
+    )
+    gen_beam_picmi.add_argument("spec_json", help="Path to JSON spec")
+    gen_beam_picmi.add_argument("--out", required=True, help="Output PICMI script path")
 
     sc = sub.add_parser(
         "suggest-cells",
@@ -469,6 +542,83 @@ def main(argv: list[str] | None = None) -> int:
         report = validate_electrostatic_pic_spec(spec)
         print(json.dumps({"ok": report.ok, "issues": [i.__dict__ for i in report.issues]}, indent=2, default=str))
         return 0 if report.ok else 2
+
+    if args.cmd == "gen-electromagnetic-pic":
+        spec = _load_electromagnetic_pic_spec(args.spec_json)
+        report = validate_electromagnetic_pic_spec(spec)
+        if not report.ok:
+            print(json.dumps({"ok": False, "issues": [i.__dict__ for i in report.issues]}, indent=2, default=str))
+            return 2
+        script = generate_picmi_electromagnetic_pic(spec)
+        Path(args.out).write_text(script)
+        print(json.dumps({"ok": True, "out": args.out}, indent=2))
+        return 0
+
+    if args.cmd == "gen-electrostatic-pic":
+        spec = _load_electrostatic_pic_spec(args.spec_json)
+        report = validate_electrostatic_pic_spec(spec)
+        if not report.ok:
+            print(json.dumps({"ok": False, "issues": [i.__dict__ for i in report.issues]}, indent=2, default=str))
+            return 2
+        script = generate_picmi_electrostatic_pic(spec)
+        Path(args.out).write_text(script)
+        print(json.dumps({"ok": True, "out": args.out}, indent=2))
+        return 0
+
+    if args.cmd == "gen-hybrid-plasma":
+        spec = _load_hybrid_plasma_spec(args.spec_json)
+        report = validate_hybrid_plasma_spec(spec)
+        if not report.ok:
+            print(json.dumps({"ok": False, "issues": [i.__dict__ for i in report.issues]}, indent=2, default=str))
+            return 2
+        script = generate_picmi_hybrid_plasma(spec)
+        Path(args.out).write_text(script)
+        print(json.dumps({"ok": True, "out": args.out}, indent=2))
+        return 0
+
+    if args.cmd == "gen-electrostatic-plasma":
+        spec = _load_electrostatic_plasma_spec(args.spec_json)
+        report = validate_electrostatic_plasma_spec(spec)
+        if not report.ok:
+            print(json.dumps({"ok": False, "issues": [i.__dict__ for i in report.issues]}, indent=2, default=str))
+            return 2
+        script = generate_picmi_electrostatic_plasma(spec)
+        Path(args.out).write_text(script)
+        print(json.dumps({"ok": True, "out": args.out}, indent=2))
+        return 0
+
+    if args.cmd == "gen-pwfa":
+        spec = _load_pwfa_spec(args.spec_json)
+        report = validate_pwfa_spec(spec)
+        if not report.ok:
+            print(json.dumps({"ok": False, "issues": [i.__dict__ for i in report.issues]}, indent=2, default=str))
+            return 2
+        script = generate_picmi_pwfa(spec)
+        Path(args.out).write_text(script)
+        print(json.dumps({"ok": True, "out": args.out}, indent=2))
+        return 0
+
+    if args.cmd == "gen-magnetic-reconnection":
+        spec = _load_magnetic_reconnection_spec(args.spec_json)
+        report = validate_magnetic_reconnection_spec(spec)
+        if not report.ok:
+            print(json.dumps({"ok": False, "issues": [i.__dict__ for i in report.issues]}, indent=2, default=str))
+            return 2
+        script = generate_picmi_magnetic_reconnection(spec)
+        Path(args.out).write_text(script)
+        print(json.dumps({"ok": True, "out": args.out}, indent=2))
+        return 0
+
+    if args.cmd == "gen-ion-beam-instability":
+        spec = _load_ion_beam_instability_spec(args.spec_json)
+        report = validate_ion_beam_instability_spec(spec)
+        if not report.ok:
+            print(json.dumps({"ok": False, "issues": [i.__dict__ for i in report.issues]}, indent=2, default=str))
+            return 2
+        script = generate_picmi_ion_beam_instability(spec)
+        Path(args.out).write_text(script)
+        print(json.dumps({"ok": True, "out": args.out}, indent=2))
+        return 0
 
     if args.cmd == "suggest-cells":
         if args.spec_json is not None:
