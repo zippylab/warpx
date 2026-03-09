@@ -72,7 +72,7 @@ class DiagSpec:
 # Per-block validators
 # ---------------------------------------------------------------------------
 
-_VALID_FIELD_BCS = {"periodic", "open", "pec", "pmc", "damped"}
+_VALID_FIELD_BCS = {"periodic", "open", "pml", "pec", "pmc", "damped", "none", "absorbing"}
 
 
 def validate_domain(domain: DomainSpec, *, allowed_dims=(1, 2, 3)) -> ValidationReport:
@@ -448,4 +448,343 @@ def validate_implicit_solver(imp: ImplicitSolverSpec) -> ValidationReport:
               "const_dt must be > 0 when implicit solver is enabled "
               "(implicit EM does not use a CFL-based timestep)",
               const_dt=imp.const_dt)
+    return r
+
+
+# ---------------------------------------------------------------------------
+# Multi-species block: SpeciesDefSpec (for broad EM-PIC and ES-PIC sim types)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class SpeciesDefSpec:
+    """Definition of a single particle species for broad-scope PIC sim types.
+
+    Used as elements of the ``species`` list in ``ElectromagneticPICSpec``
+    and ``ElectrostaticPICSpec``.  All physics flags default to ``False``; the
+    generator only emits lines for flags that are ``True``.
+
+    Momentum priority rule: if ``temperature_eV > 0``, the generator computes
+    an isotropic thermal speed ``u_th = sqrt(T_eV * q_e / m_kg) / c`` and
+    applies it to all three axes, overriding any explicit ``u*_th`` values.
+    If ``temperature_eV == 0`` but any ``u*_th`` is non-zero, the explicit
+    per-component values are used.  If all thermal spreads are zero, the
+    species is injected as a cold (constant) distribution.
+    """
+    name: str = ""
+    charge: float = -1.0                # units of q_e (+1=proton, -1=electron)
+    mass_amu: float = 5.486e-4          # atomic mass units; electron default
+    injection_style: str = "NRandomPerCell"
+    # --- NRandomPerCell / NUniformPerCell injection ---
+    density: float = 1e20              # m^-3
+    ppc: int = 4                        # particles per cell
+    ppc_each_dim: Optional[List[int]] = None  # for NUniformPerCell; overrides ppc
+    profile: str = "constant"          # "constant" | "parse_density_function"
+    density_function: str = ""         # WarpX parser expression for profile
+    temperature_eV: float = 0.0        # thermal temperature (see priority rule above)
+    ux_m: float = 0.0                  # mean normalised momentum x
+    uy_m: float = 0.0                  # mean normalised momentum y
+    uz_m: float = 0.0                  # mean normalised momentum z (drift)
+    ux_th: float = 0.0                 # thermal spread in ux
+    uy_th: float = 0.0                 # thermal spread in uy
+    uz_th: float = 0.0                 # thermal spread in uz
+    # Spatial bounds (slab injection; None = no limit)
+    xmin: Optional[float] = None
+    xmax: Optional[float] = None
+    ymin: Optional[float] = None
+    ymax: Optional[float] = None
+    zmin: Optional[float] = None
+    zmax: Optional[float] = None
+    # --- gaussian_beam injection ---
+    x_rms: float = 1e-6
+    y_rms: float = 1e-6
+    z_rms: float = 2e-6
+    z_cut: float = 3.0
+    q_tot: float = -1e-12              # total charge [C]
+    z_mean: float = 0.0                # beam centroid z [m]
+    n_macro: int = 1000
+    # --- Field ionization ---
+    do_field_ionization: bool = False
+    physical_element: str = ""         # atomic element symbol, e.g. "N", "Ar", "He"
+    ionization_initial_level: int = 0
+    ionization_product_species: str = ""  # name of electron product species
+    # --- QED ---
+    do_qed_breit_wheeler: bool = False
+    qed_bw_ele_product: str = ""       # electron product species name
+    qed_bw_pos_product: str = ""       # positron product species name
+    do_qed_quantum_sync: bool = False
+    qed_qs_phot_product: str = ""      # photon product species name
+    # --- Classical radiation reaction ---
+    do_classical_radiation_reaction: bool = False
+    # --- Continuous injection (moving window) ---
+    do_continuous_injection: bool = False
+
+
+def validate_species_def(sp: SpeciesDefSpec, all_names: set) -> ValidationReport:
+    """Validate a single species definition.
+
+    *all_names* is the set of all species names in the simulation, used to
+    check that product/ionization target species actually exist.
+    """
+    r = ValidationReport()
+
+    if not sp.name or " " in sp.name:
+        r.add(Severity.ERROR, "species.name",
+              "species name must be non-empty and contain no spaces", name=sp.name)
+
+    if sp.mass_amu <= 0:
+        r.add(Severity.ERROR, "species.mass_amu",
+              "mass_amu must be > 0", name=sp.name, mass_amu=sp.mass_amu)
+
+    if sp.injection_style == "gaussian_beam":
+        if sp.n_macro <= 0:
+            r.add(Severity.ERROR, "species.n_macro",
+                  "n_macro must be > 0 for gaussian_beam injection",
+                  name=sp.name, n_macro=sp.n_macro)
+    elif sp.injection_style not in ("NRandomPerCell", "NUniformPerCell", "none"):
+        r.add(Severity.WARNING, "species.injection_style",
+              f"unrecognised injection_style '{sp.injection_style}'",
+              name=sp.name, injection_style=sp.injection_style)
+
+    if sp.do_field_ionization:
+        if not sp.physical_element.strip():
+            r.add(Severity.ERROR, "species.ionization.element",
+                  "physical_element must be set when do_field_ionization=True",
+                  name=sp.name)
+        if sp.ionization_product_species not in all_names:
+            r.add(Severity.ERROR, "species.ionization.product",
+                  f"ionization_product_species '{sp.ionization_product_species}' "
+                  f"not found in species list",
+                  name=sp.name, product=sp.ionization_product_species)
+
+    if sp.do_qed_breit_wheeler:
+        for attr, val in [("qed_bw_ele_product", sp.qed_bw_ele_product),
+                          ("qed_bw_pos_product", sp.qed_bw_pos_product)]:
+            if not val or val not in all_names:
+                r.add(Severity.ERROR, f"species.qed_bw.{attr}",
+                      f"{attr} must name an existing species",
+                      name=sp.name, product=val)
+
+    if sp.do_qed_quantum_sync:
+        if not sp.qed_qs_phot_product or sp.qed_qs_phot_product not in all_names:
+            r.add(Severity.ERROR, "species.qed_qs.phot_product",
+                  "qed_qs_phot_product must name an existing species",
+                  name=sp.name, product=sp.qed_qs_phot_product)
+
+    if sp.do_classical_radiation_reaction and sp.do_qed_quantum_sync:
+        r.add(Severity.WARNING, "species.rr.redundant",
+              "Both classical radiation reaction and QED quantum sync are enabled; "
+              "this combination is unusual (QED already includes radiation reaction)",
+              name=sp.name)
+
+    return r
+
+
+# ---------------------------------------------------------------------------
+# Collision / nuclear reaction block
+# ---------------------------------------------------------------------------
+
+@dataclass
+class CollisionSpec:
+    """Definition of a single particle collision or nuclear reaction.
+
+    Supported types:
+      ``"coulomb"``       — binary Coulomb collisions (TA77/Nanbu)
+      ``"nuclearfusion"`` — nuclear fusion (D-T, D-He3, D-D, p-B11, etc.)
+
+    For nuclear fusion the ``event_multiplier`` should be set to a large value
+    (typically 1e10–1e18) to boost the statistical probability of rare events
+    to a level where they are observed within a simulation.  Setting it to 1.0
+    is almost always physically incorrect.
+    """
+    name: str = ""
+    type: str = "coulomb"                    # "coulomb" | "nuclearfusion"
+    species: List[str] = field(default_factory=list)        # 2 reactant species names
+    product_species: List[str] = field(default_factory=list)
+    CoulombLog: float = 0.0                  # 0 = auto-compute from plasma parameters
+    event_multiplier: float = 1.0            # nuclear only
+    probability_target_value: float = 0.02  # nuclear only; target per-step probability
+
+
+def validate_collision(col: CollisionSpec, all_names: set) -> ValidationReport:
+    """Validate a single collision/reaction definition."""
+    r = ValidationReport()
+
+    if not col.name:
+        r.add(Severity.ERROR, "collision.name", "collision name must be non-empty")
+
+    _VALID_COLLISION_TYPES = {"coulomb", "nuclearfusion"}
+    if col.type not in _VALID_COLLISION_TYPES:
+        r.add(Severity.ERROR, "collision.type",
+              f"type must be one of {sorted(_VALID_COLLISION_TYPES)}",
+              name=col.name, type=col.type)
+        return r
+
+    if len(col.species) != 2:
+        r.add(Severity.ERROR, "collision.species",
+              "exactly 2 reactant species names required",
+              name=col.name, got=len(col.species))
+    else:
+        for sp in col.species:
+            if sp not in all_names:
+                r.add(Severity.ERROR, "collision.species.unknown",
+                      f"reactant species '{sp}' not found in species list",
+                      name=col.name, species=sp)
+
+    if col.type == "nuclearfusion":
+        if not col.product_species:
+            r.add(Severity.ERROR, "collision.nuclearfusion.products",
+                  "product_species must be non-empty for nuclearfusion type",
+                  name=col.name)
+        else:
+            for sp in col.product_species:
+                if sp not in all_names:
+                    r.add(Severity.ERROR, "collision.products.unknown",
+                          f"product species '{sp}' not found in species list",
+                          name=col.name, species=sp)
+        if col.event_multiplier <= 1.0:
+            r.add(Severity.WARNING, "collision.nuclearfusion.multiplier",
+                  "event_multiplier <= 1.0 is almost certainly wrong for nuclear fusion "
+                  "(typical values: 1e10–1e18)",
+                  name=col.name, event_multiplier=col.event_multiplier)
+
+    if col.type == "coulomb" and col.CoulombLog < 0:
+        r.add(Severity.WARNING, "collision.coulomb.log",
+              "CoulombLog < 0 is invalid; use 0 for auto-compute",
+              name=col.name, CoulombLog=col.CoulombLog)
+
+    return r
+
+
+# ---------------------------------------------------------------------------
+# EM-PIC solver block
+# ---------------------------------------------------------------------------
+
+@dataclass
+class EMSolverSpec:
+    """Field solver and particle pusher parameters for EM-PIC (FDTD/spectral).
+
+    Maxwell solver options:
+      ``"yee"``   — classic FDTD staggered-grid Yee scheme (default)
+      ``"ckc"``   — Cole-Karkkainen-Cowan (reduced dispersion FDTD)
+      ``"psatd"`` — pseudo-spectral analytical time-domain (no CFL limit)
+      ``"none"``  — no field evolution (particle tracing)
+
+    Particle pusher options:
+      ``"boris"``    — standard Boris leap-frog (default)
+      ``"vay"``      — Vay pusher (better energy conservation at high gamma)
+      ``"higuera"``  — Higuera-Cary (implicit; designed for theta-implicit EM)
+
+    Current deposition options:
+      ``"esirkepov"`` — charge-conserving Esirkepov (default)
+      ``"direct"``    — direct deposition
+      ``"vay"``       — Vay current deposition
+    """
+    max_steps: int = 200
+    cfl: float = 0.99
+    particle_shape: str = "linear"       # "linear" | "quadratic" | "cubic"
+    maxwell_solver: str = "yee"          # "yee" | "ckc" | "psatd" | "none"
+    particle_pusher: str = "boris"       # "boris" | "vay" | "higuera"
+    current_deposition: str = "esirkepov"  # "esirkepov" | "direct" | "vay"
+
+
+def validate_em_solver(sol: EMSolverSpec) -> ValidationReport:
+    r = ValidationReport()
+
+    if sol.max_steps <= 0:
+        r.add(Severity.ERROR, "em.max_steps",
+              "max_steps must be > 0", max_steps=sol.max_steps)
+
+    _VALID_MAXWELL = {"yee", "ckc", "psatd", "none"}
+    if sol.maxwell_solver not in _VALID_MAXWELL:
+        r.add(Severity.ERROR, "em.maxwell_solver",
+              f"maxwell_solver must be one of {sorted(_VALID_MAXWELL)}",
+              maxwell_solver=sol.maxwell_solver)
+
+    _VALID_PUSHERS = {"boris", "vay", "higuera"}
+    if sol.particle_pusher not in _VALID_PUSHERS:
+        r.add(Severity.ERROR, "em.particle_pusher",
+              f"particle_pusher must be one of {sorted(_VALID_PUSHERS)}",
+              particle_pusher=sol.particle_pusher)
+    elif sol.particle_pusher == "higuera":
+        r.add(Severity.WARNING, "em.pusher.higuera_explicit",
+              "The Higuera-Cary pusher is designed for implicit EM solvers; "
+              "using it with an explicit FDTD solver is unusual")
+
+    if sol.maxwell_solver != "psatd" and sol.cfl > 1.0:
+        r.add(Severity.WARNING, "em.cfl",
+              "cfl > 1.0 is likely unstable for FDTD solvers (Yee/CKC)",
+              cfl=sol.cfl)
+
+    _VALID_CURRENT_DEP = {"esirkepov", "direct", "vay"}
+    if sol.current_deposition not in _VALID_CURRENT_DEP:
+        r.add(Severity.ERROR, "em.current_deposition",
+              f"current_deposition must be one of {sorted(_VALID_CURRENT_DEP)}",
+              current_deposition=sol.current_deposition)
+
+    return r
+
+
+# ---------------------------------------------------------------------------
+# ES-PIC solver block
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ESSolverSpec:
+    """Field solver and particle pusher parameters for ES-PIC (Poisson-based).
+
+    Poisson solver options:
+      ``"multigrid"`` — algebraic multigrid (MLMG), works for any BCs (default)
+      ``"fft"``       — spectral FFT Poisson, requires periodic BCs in all dims
+
+    Particle pusher options:
+      ``"boris"`` — standard Boris leap-frog (default)
+      ``"vay"``   — Vay pusher
+
+    ``const_dt`` sets the fixed timestep [s].  Unlike EM-PIC, the ES solver
+    is not CFL-limited by the speed of light but must still resolve the plasma
+    period: ``dt * omega_pe < 2`` (hard stability limit).
+    """
+    max_steps: int = 200
+    particle_shape: str = "linear"
+    poisson_solver: str = "multigrid"    # "multigrid" | "fft"
+    particle_pusher: str = "boris"       # "boris" | "vay"
+    poisson_precision: float = 1e-11    # MLMG relative tolerance
+    const_dt: float = 1e-11             # fixed timestep [s]
+    electrostatic_mode: str = "labframe"  # "labframe" | "relativistic"
+
+
+def validate_es_solver(sol: ESSolverSpec) -> ValidationReport:
+    r = ValidationReport()
+
+    if sol.max_steps <= 0:
+        r.add(Severity.ERROR, "es.max_steps",
+              "max_steps must be > 0", max_steps=sol.max_steps)
+
+    _VALID_POISSON = {"multigrid", "fft"}
+    if sol.poisson_solver not in _VALID_POISSON:
+        r.add(Severity.ERROR, "es.poisson_solver",
+              f"poisson_solver must be one of {sorted(_VALID_POISSON)}",
+              poisson_solver=sol.poisson_solver)
+
+    _VALID_PUSHERS = {"boris", "vay"}
+    if sol.particle_pusher not in _VALID_PUSHERS:
+        r.add(Severity.ERROR, "es.particle_pusher",
+              f"particle_pusher must be one of {sorted(_VALID_PUSHERS)} "
+              f"(higuera is for implicit EM, not ES-PIC)",
+              particle_pusher=sol.particle_pusher)
+
+    if sol.const_dt <= 0:
+        r.add(Severity.ERROR, "es.const_dt",
+              "const_dt must be > 0", const_dt=sol.const_dt)
+
+    if sol.poisson_precision <= 0:
+        r.add(Severity.ERROR, "es.poisson_precision",
+              "poisson_precision must be > 0", poisson_precision=sol.poisson_precision)
+
+    _VALID_MODE = {"labframe", "relativistic"}
+    if sol.electrostatic_mode not in _VALID_MODE:
+        r.add(Severity.ERROR, "es.electrostatic_mode",
+              f"electrostatic_mode must be one of {sorted(_VALID_MODE)}",
+              electrostatic_mode=sol.electrostatic_mode)
+
     return r

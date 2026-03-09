@@ -1,0 +1,38 @@
+{
+  "name": "es_pic_nitrogen_ionization",
+  "dim": 1,
+  "number_of_cells": [400],
+  "lower_bound": [0.0],
+  "upper_bound": [0.01],
+  "field_bc": ["periodic"],
+  "max_steps": 500,
+  "const_dt": 5e-12,
+  "poisson_solver": "multigrid",
+  "particle_pusher": "boris",
+  "electrostatic_mode": "labframe",
+  "species": [
+    {
+      "name": "electrons",
+      "charge": -1,
+      "mass_amu": 5.486e-4,
+      "injection_style": "NRandomPerCell",
+      "density": 1e18,
+      "ppc": 16,
+      "temperature_eV": 10.0
+    },
+    {
+      "name": "nitrogen",
+      "charge": 7,
+      "mass_amu": 14.003,
+      "injection_style": "NRandomPerCell",
+      "density": 1e18,
+      "ppc": 4,
+      "do_field_ionization": true,
+      "physical_element": "N",
+      "ionization_initial_level": 0,
+      "ionization_product_species": "electrons"
+    }
+  ],
+  "diag_period": 50,
+  "diag_fields": ["Ex", "rho"]
+}

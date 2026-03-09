@@ -6,9 +6,12 @@ from .electrostatic_plasma import (  # noqa: F401
 )
 from .electrostatic_plasma_validate import validate_electrostatic_plasma_spec  # noqa: F401
 from .blocks import (  # noqa: F401
+    CollisionSpec,
     DiagSpec,
     DomainSpec,
     EBSpec,
+    EMSolverSpec,
+    ESSolverSpec,
     ExtBFieldSpec,
     HybridIonSpec,
     ImplicitSolverSpec,
@@ -16,8 +19,19 @@ from .blocks import (  # noqa: F401
     OhmSolverSpec,
     ParticleBeamSpec,
     SolverSpec,
+    SpeciesDefSpec,
     SpeciesSpec,
 )
+from .electromagnetic_pic import (  # noqa: F401
+    ElectromagneticPICSpec,
+    generate_inputs_electromagnetic_pic,
+)
+from .electromagnetic_pic_validate import validate_electromagnetic_pic_spec  # noqa: F401
+from .electrostatic_pic import (  # noqa: F401
+    ElectrostaticPICSpec,
+    generate_inputs_electrostatic_pic,
+)
+from .electrostatic_pic_validate import validate_electrostatic_pic_spec  # noqa: F401
 from .hybrid_plasma import (  # noqa: F401
     HybridPlasmaSpec,
     generate_inputs_hybrid_plasma,

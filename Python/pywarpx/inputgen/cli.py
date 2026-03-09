@@ -5,6 +5,10 @@ import json
 import sys
 from pathlib import Path
 
+from .electromagnetic_pic import ElectromagneticPICSpec, generate_inputs_electromagnetic_pic
+from .electromagnetic_pic_validate import validate_electromagnetic_pic_spec
+from .electrostatic_pic import ElectrostaticPICSpec, generate_inputs_electrostatic_pic
+from .electrostatic_pic_validate import validate_electrostatic_pic_spec
 from .electrostatic_plasma import ElectrostaticPlasmaSpec, generate_inputs_electrostatic_plasma
 from .electrostatic_plasma_validate import validate_electrostatic_plasma_spec
 from .generate import generate_picmi_uniform_plasma
@@ -57,6 +61,16 @@ def _load_magnetic_reconnection_spec(path: str) -> MagneticReconnectionSpec:
 def _load_pwfa_spec(path: str) -> PWFASpec:
     data = json.loads(Path(path).read_text())
     return PWFASpec.from_dict(data)
+
+
+def _load_electromagnetic_pic_spec(path: str) -> ElectromagneticPICSpec:
+    data = json.loads(Path(path).read_text())
+    return ElectromagneticPICSpec.from_dict(data)
+
+
+def _load_electrostatic_pic_spec(path: str) -> ElectrostaticPICSpec:
+    data = json.loads(Path(path).read_text())
+    return ElectrostaticPICSpec.from_dict(data)
 
 
 def _apply_picmi_dry_run(script: str) -> str:
@@ -177,6 +191,32 @@ def main(argv: list[str] | None = None) -> int:
         help="Validate a PWFASpec JSON",
     )
     val_pwfa.add_argument("spec_json", help="Path to JSON spec")
+
+    gen_em_pic = sub.add_parser(
+        "gen-electromagnetic-pic-native",
+        help="Generate a native WarpX inputs file from an ElectromagneticPICSpec JSON",
+    )
+    gen_em_pic.add_argument("spec_json", help="Path to JSON spec")
+    gen_em_pic.add_argument("--out", required=True, help="Output inputs file path")
+
+    val_em_pic = sub.add_parser(
+        "validate-electromagnetic-pic",
+        help="Validate an ElectromagneticPICSpec JSON",
+    )
+    val_em_pic.add_argument("spec_json", help="Path to JSON spec")
+
+    gen_es_pic = sub.add_parser(
+        "gen-electrostatic-pic-native",
+        help="Generate a native WarpX inputs file from an ElectrostaticPICSpec JSON",
+    )
+    gen_es_pic.add_argument("spec_json", help="Path to JSON spec")
+    gen_es_pic.add_argument("--out", required=True, help="Output inputs file path")
+
+    val_es_pic = sub.add_parser(
+        "validate-electrostatic-pic",
+        help="Validate an ElectrostaticPICSpec JSON",
+    )
+    val_es_pic.add_argument("spec_json", help="Path to JSON spec")
 
     args = p.parse_args(argv)
 
@@ -377,6 +417,40 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "validate-pwfa":
         spec = _load_pwfa_spec(args.spec_json)
         report = validate_pwfa_spec(spec)
+        print(json.dumps({"ok": report.ok, "issues": [i.__dict__ for i in report.issues]}, indent=2, default=str))
+        return 0 if report.ok else 2
+
+    if args.cmd == "gen-electromagnetic-pic-native":
+        spec = _load_electromagnetic_pic_spec(args.spec_json)
+        report = validate_electromagnetic_pic_spec(spec)
+        if not report.ok:
+            print(json.dumps({"ok": False, "issues": [i.__dict__ for i in report.issues]}, indent=2, default=str))
+            return 2
+        text = generate_inputs_electromagnetic_pic(spec)
+        Path(args.out).write_text(text)
+        print(json.dumps({"ok": True, "out": args.out}, indent=2))
+        return 0
+
+    if args.cmd == "validate-electromagnetic-pic":
+        spec = _load_electromagnetic_pic_spec(args.spec_json)
+        report = validate_electromagnetic_pic_spec(spec)
+        print(json.dumps({"ok": report.ok, "issues": [i.__dict__ for i in report.issues]}, indent=2, default=str))
+        return 0 if report.ok else 2
+
+    if args.cmd == "gen-electrostatic-pic-native":
+        spec = _load_electrostatic_pic_spec(args.spec_json)
+        report = validate_electrostatic_pic_spec(spec)
+        if not report.ok:
+            print(json.dumps({"ok": False, "issues": [i.__dict__ for i in report.issues]}, indent=2, default=str))
+            return 2
+        text = generate_inputs_electrostatic_pic(spec)
+        Path(args.out).write_text(text)
+        print(json.dumps({"ok": True, "out": args.out}, indent=2))
+        return 0
+
+    if args.cmd == "validate-electrostatic-pic":
+        spec = _load_electrostatic_pic_spec(args.spec_json)
+        report = validate_electrostatic_pic_spec(spec)
         print(json.dumps({"ok": report.ok, "issues": [i.__dict__ for i in report.issues]}, indent=2, default=str))
         return 0 if report.ok else 2
 

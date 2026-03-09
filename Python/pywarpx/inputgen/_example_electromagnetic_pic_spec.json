@@ -1,0 +1,47 @@
+{
+  "name": "em_pic_2d",
+  "dim": 2,
+  "number_of_cells": [256, 512],
+  "lower_bound": [-50e-6, 0.0],
+  "upper_bound": [50e-6, 200e-6],
+  "field_bc": ["periodic", "pml"],
+  "max_steps": 500,
+  "cfl": 0.99,
+  "maxwell_solver": "yee",
+  "particle_pusher": "boris",
+  "current_deposition": "esirkepov",
+  "species": [
+    {
+      "name": "electrons",
+      "charge": -1,
+      "mass_amu": 5.486e-4,
+      "injection_style": "NRandomPerCell",
+      "density": 1e24,
+      "ppc": 4,
+      "temperature_eV": 1000.0,
+      "zmin": 20e-6,
+      "zmax": 180e-6
+    },
+    {
+      "name": "protons",
+      "charge": 1,
+      "mass_amu": 1.007276,
+      "injection_style": "NRandomPerCell",
+      "density": 1e24,
+      "ppc": 4,
+      "temperature_eV": 100.0,
+      "zmin": 20e-6,
+      "zmax": 180e-6
+    }
+  ],
+  "collisions": [
+    {
+      "name": "coul_ei",
+      "type": "coulomb",
+      "species": ["electrons", "protons"],
+      "CoulombLog": 10.0
+    }
+  ],
+  "diag_period": 50,
+  "diag_fields": ["Ex", "Ey", "Ez", "Bx", "By", "Bz", "rho"]
+}
