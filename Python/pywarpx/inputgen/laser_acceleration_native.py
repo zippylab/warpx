@@ -104,6 +104,23 @@ def generate_inputs_laser_acceleration(spec: LaserAccelerationSpec) -> str:
     prob_lo = " ".join(f"{x:.17g}" for x in spec.domain.lower_bound)
     prob_hi = " ".join(f"{x:.17g}" for x in spec.domain.upper_bound)
 
+    # Implicit solver section (only emitted when enabled)
+    imp = spec.implicit
+    if imp.enabled:
+        timestep_line = f"warpx.const_dt = {imp.const_dt:.17g}"
+        implicit_block = f"""\
+
+# --- Implicit EM solver (theta = {imp.theta}) --------------------------------
+algo.evolve_scheme = theta_implicit_em
+warpx.implicit_solver.solver_type = {imp.solver_type}
+warpx.implicit_solver.max_iters = {imp.max_iters}
+warpx.implicit_solver.relative_tolerance = {imp.tolerance:.17g}
+warpx.implicit_solver.theta = {imp.theta:.17g}
+"""
+    else:
+        timestep_line = f"warpx.cfl = {spec.solver.cfl:.17g}"
+        implicit_block = ""
+
     # ------------------------------------------------------------------
     # Diagnostics
     # ------------------------------------------------------------------
@@ -146,11 +163,11 @@ boundary.particle_hi = {particle_hi}
 
 # --- Numerics ---------------------------------------------------------------
 warpx.verbose = 1
-warpx.cfl = {spec.solver.cfl:.17g}
+{timestep_line}
 warpx.use_filter = 0
 
 algo.maxwell_solver = CKC
-algo.particle_shape = {pshape}
+algo.particle_shape = {pshape}{implicit_block}
 
 # --- Species ----------------------------------------------------------------
 particles.species_names = electrons ions

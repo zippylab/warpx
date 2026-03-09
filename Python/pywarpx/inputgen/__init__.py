@@ -11,6 +11,7 @@ from .blocks import (  # noqa: F401
     EBSpec,
     ExtBFieldSpec,
     HybridIonSpec,
+    ImplicitSolverSpec,
     LaserSpec,
     OhmSolverSpec,
     ParticleBeamSpec,

@@ -393,3 +393,59 @@ def validate_particle_beam(beam: ParticleBeamSpec, label: str = "beam") -> Valid
     if beam.n_macro <= 0:
         r.add(Severity.ERROR, f"{label}.n_macro", "n_macro must be > 0", n_macro=beam.n_macro)
     return r
+
+
+# ---------------------------------------------------------------------------
+# Implicit EM solver block
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ImplicitSolverSpec:
+    """Theta-implicit EM field solver (WarpX predictor-corrector implicit EM).
+
+    When enabled, WarpX uses ``algo.evolve_scheme = theta_implicit_em`` which
+    solves the Maxwell equations implicitly, removing the CFL stability
+    restriction on dt.  The simulation must also use a fixed ``warpx.const_dt``
+    instead of a CFL-based timestep.
+
+    This is useful when:
+      - The grid resolves the plasma skin depth but not the wave period at CFL
+      - The physics of interest evolves slowly relative to c/dx
+      - Long-duration magnetised plasma runs (drift waves, MHD-like regimes)
+
+    Typical settings: theta=0.5 (Crank-Nicolson), solver_type="picard",
+    max_iters=30, tolerance=1e-3.
+    """
+    enabled: bool = False
+    theta: float = 0.5           # Temporal centering: 0.5 = Crank-Nicolson
+    solver_type: str = "picard"  # Nonlinear solver: "picard" or "newton"
+    max_iters: int = 30          # Maximum solver iterations per step
+    tolerance: float = 1e-3     # Relative convergence tolerance
+    const_dt: float = 0.0        # Fixed timestep [s]; required when enabled (0 = use CFL)
+
+
+def validate_implicit_solver(imp: ImplicitSolverSpec) -> ValidationReport:
+    """Validate implicit EM solver settings.
+
+    Returns OK immediately when ``enabled=False``.
+    """
+    r = ValidationReport()
+    if not imp.enabled:
+        return r
+
+    if not (0.0 < imp.theta <= 1.0):
+        r.add(Severity.ERROR, "implicit.theta",
+              "theta must be in (0, 1]", theta=imp.theta)
+    if imp.solver_type not in ("picard", "newton"):
+        r.add(Severity.ERROR, "implicit.solver_type",
+              "solver_type must be 'picard' or 'newton'", solver_type=imp.solver_type)
+    if imp.max_iters <= 0:
+        r.add(Severity.ERROR, "implicit.max_iters", "max_iters must be > 0")
+    if imp.tolerance <= 0:
+        r.add(Severity.ERROR, "implicit.tolerance", "tolerance must be > 0")
+    if imp.const_dt <= 0:
+        r.add(Severity.ERROR, "implicit.const_dt",
+              "const_dt must be > 0 when implicit solver is enabled "
+              "(implicit EM does not use a CFL-based timestep)",
+              const_dt=imp.const_dt)
+    return r

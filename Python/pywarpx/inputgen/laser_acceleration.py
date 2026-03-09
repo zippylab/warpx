@@ -16,7 +16,7 @@ composed of reusable block dataclasses from blocks.py.
 from dataclasses import asdict, dataclass, field
 from textwrap import dedent
 
-from .blocks import DiagSpec, DomainSpec, LaserSpec, SolverSpec, SpeciesSpec
+from .blocks import DiagSpec, DomainSpec, ImplicitSolverSpec, LaserSpec, SolverSpec, SpeciesSpec
 
 _GRID_CLASS = {2: "Cartesian2DGrid", 3: "Cartesian3DGrid"}
 
@@ -26,7 +26,9 @@ _SOLVER_KEYS = {"max_steps", "cfl", "particle_shape"}
 _SPECIES_KEYS = {"plasma_density", "plasma_zmin", "plasma_zmax"}
 _LASER_KEYS = {"wavelength", "a0", "waist", "duration", "focal_position_z",
                "centroid_position_z"}
-_DIAG_KEYS = {"diag_period", "diag_fields"}
+_DIAG_KEYS     = {"diag_period", "diag_fields"}
+_IMPLICIT_KEYS = {"implicit_enabled", "implicit_theta", "implicit_solver_type",
+                  "implicit_max_iters", "implicit_tolerance", "implicit_const_dt"}
 
 # 3D defaults (used by __post_init__ when dim=3 but lists are still 2-element)
 _3D_DEFAULTS = {
@@ -45,6 +47,7 @@ class LaserAccelerationSpec:
     species: SpeciesSpec = field(default_factory=SpeciesSpec)
     laser: LaserSpec = field(default_factory=LaserSpec)
     diag: DiagSpec = field(default_factory=DiagSpec)
+    implicit: ImplicitSolverSpec = field(default_factory=ImplicitSolverSpec)
 
     def __post_init__(self) -> None:
         # When dim=3 but domain list fields are still at 2D defaults,
@@ -61,9 +64,18 @@ class LaserAccelerationSpec:
         species = SpeciesSpec(**{k: d[k] for k in _SPECIES_KEYS if k in d})
         laser = LaserSpec(**{k: d[k] for k in _LASER_KEYS if k in d})
         diag = DiagSpec(**{k: d[k] for k in _DIAG_KEYS if k in d})
+        imp_kw: dict = {}
+        if "implicit_enabled" in d:     imp_kw["enabled"]     = d["implicit_enabled"]
+        if "implicit_theta" in d:       imp_kw["theta"]       = d["implicit_theta"]
+        if "implicit_solver_type" in d: imp_kw["solver_type"] = d["implicit_solver_type"]
+        if "implicit_max_iters" in d:   imp_kw["max_iters"]   = d["implicit_max_iters"]
+        if "implicit_tolerance" in d:   imp_kw["tolerance"]   = d["implicit_tolerance"]
+        if "implicit_const_dt" in d:    imp_kw["const_dt"]    = d["implicit_const_dt"]
+        implicit = ImplicitSolverSpec(**imp_kw)
         return cls(
             name=d.get("name", "laser_acceleration"),
             domain=domain, solver=solver, species=species, laser=laser, diag=diag,
+            implicit=implicit,
         )
 
 

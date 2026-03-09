@@ -1,6 +1,13 @@
 from __future__ import annotations
 
-from .blocks import validate_diag, validate_domain, validate_laser, validate_solver, validate_species
+from .blocks import (
+    validate_diag,
+    validate_domain,
+    validate_implicit_solver,
+    validate_laser,
+    validate_solver,
+    validate_species,
+)
 from .laser_acceleration import LaserAccelerationSpec
 from .spec import Severity, ValidationReport
 
@@ -18,6 +25,7 @@ def validate_laser_acceleration_spec(spec: LaserAccelerationSpec) -> ValidationR
     r.merge(validate_laser(spec.laser))
     r.merge(validate_species(spec.species, spec.domain))
     r.merge(validate_diag(spec.diag))
+    r.merge(validate_implicit_solver(spec.implicit))
 
     # Cross-cutting: resolution heuristic
     _check_laser_resolution(r, spec)
