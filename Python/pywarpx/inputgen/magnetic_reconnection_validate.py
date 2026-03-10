@@ -121,7 +121,7 @@ def _check_whistler_cfl(r: ValidationReport, spec: MagneticReconnectionSpec) -> 
             math.ceil(spec.const_dt * omega_ci * k_nyq_li ** 2 / _RK4_LIMIT)
         )
         r.add(
-            Severity.WARNING,
+            Severity.ERROR,
             "reconnect.cfl.whistler",
             (
                 f"Whistler CFL z={z_max:.3g} > {_RK4_LIMIT:.3g}: unstable. "

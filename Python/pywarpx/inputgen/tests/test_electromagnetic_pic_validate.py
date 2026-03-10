@@ -132,11 +132,12 @@ def test_em_pic_nuclear_fusion_multiplier_warning():
     )
 
 
-def test_em_pic_cfl_warning():
-    """cfl > 1.0 with Yee solver → WARNING."""
+def test_em_pic_cfl_error():
+    """cfl > 1.0 with Yee solver → ERROR (von Neumann instability)."""
     spec = _spec(cfl=1.5)
     r = validate_electromagnetic_pic_spec(spec)
-    assert any(i.severity == Severity.WARNING and "cfl" in i.code for i in r.issues)
+    assert not r.ok
+    assert any(i.severity == Severity.ERROR and "cfl" in i.code for i in r.issues)
 
 
 def test_em_pic_psatd_implicit_incompatible():

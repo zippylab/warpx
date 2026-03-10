@@ -827,8 +827,10 @@ def validate_em_solver(sol: EMSolverSpec) -> ValidationReport:
               "using it with an explicit FDTD solver is unusual")
 
     if sol.maxwell_solver != "psatd" and sol.cfl > 1.0:
-        r.add(Severity.WARNING, "em.cfl",
-              "cfl > 1.0 is likely unstable for FDTD solvers (Yee/CKC)",
+        r.add(Severity.ERROR, "em.cfl",
+              f"cfl={sol.cfl} > 1.0 violates the von Neumann stability limit for "
+              f"FDTD solvers (Yee/CKC); set cfl <= 0.9 (or <= 1/sqrt(dim) for "
+              f"the tightest safe value)",
               cfl=sol.cfl)
 
     _VALID_CURRENT_DEP = {"esirkepov", "direct", "vay"}

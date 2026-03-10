@@ -46,7 +46,12 @@ def test_beam_validate_zero_b0():
 
 def test_beam_validate_high_density_fraction():
     """Warn when beam density > 50% of total."""
-    spec = _spec(core_density=1e21, beam_density=2e21)  # 67% beam
+    # Use a coarse grid (dx >> l_i) so whistler CFL is stable
+    spec = _spec(
+        core_density=1e21, beam_density=2e21,  # 67% beam
+        dim=1, number_of_cells=[10], lower_bound=[0.0], upper_bound=[1.0],
+        field_bc=["periodic"],
+    )
     r = validate_ion_beam_instability_spec(spec)
     assert r.ok  # warning only
     assert any(i.code == "beam.density_fraction" for i in r.issues)
