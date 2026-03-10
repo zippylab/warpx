@@ -17,7 +17,7 @@ Physical constants (CODATA 2018):
 
 import math
 from dataclasses import asdict, dataclass, field
-from typing import List
+from typing import List, Optional
 
 from .blocks import (
     AMRSpec,
@@ -28,6 +28,7 @@ from .blocks import (
     SolverSpec,
     _AMR_KEY_MAP,
     _emit_amr_block,
+    _emit_checkpoint_block,
     _emit_diag_block,
     _emit_picmi_diag_lines,
     suggest_cells,
@@ -85,6 +86,9 @@ class HybridPlasmaSpec:
     )
     # AMR / resolution
     amr: AMRSpec = field(default_factory=AMRSpec)
+    # Checkpoint: write AMReX checkpoint every N steps; None = no checkpoint
+    checkpoint_int: Optional[int] = None
+    checkpoint_file: str = "chk"
 
     @classmethod
     def from_dict(cls, d: dict) -> "HybridPlasmaSpec":
@@ -123,6 +127,8 @@ class HybridPlasmaSpec:
             B0=d.get("B0", [0.0, 0.0, 0.25]),
             diag=diag,
             amr=amr,
+            checkpoint_int=d.get("checkpoint_int"),
+            checkpoint_file=d.get("checkpoint_file", "chk"),
         )
 
 
@@ -203,6 +209,12 @@ def generate_inputs_hybrid_plasma(spec: HybridPlasmaSpec) -> str:
     )
 
     # ------------------------------------------------------------------
+    # Checkpoint (optional)
+    # ------------------------------------------------------------------
+    _chk = _emit_checkpoint_block(spec.checkpoint_int, spec.checkpoint_file)
+    checkpoint_section = ("\n" + _chk + "\n") if _chk else ""
+
+    # ------------------------------------------------------------------
     # Assemble
     # ------------------------------------------------------------------
     text = f"""\
@@ -262,7 +274,7 @@ ions.uz_th = {ion_u_th:.17g}
 
 # --- Diagnostics ------------------------------------------------------------
 {diag_section}
-"""
+{checkpoint_section}"""
 
     return text
 

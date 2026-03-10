@@ -16,7 +16,7 @@ Physical constants (CODATA 2018, matching scipy.constants / picmi):
 import math
 from dataclasses import asdict
 
-from .blocks import _emit_amr_block, _emit_diag_block
+from .blocks import _emit_amr_block, _emit_checkpoint_block, _emit_diag_block
 from .laser_acceleration import LaserAccelerationSpec
 
 # CODATA 2018 values (matches pywarpx / PICMI constants)
@@ -130,6 +130,12 @@ warpx.implicit_solver.theta = {imp.theta:.17g}
     diag_section = _emit_diag_block(spec.diag)
 
     # ------------------------------------------------------------------
+    # Checkpoint (optional)
+    # ------------------------------------------------------------------
+    _chk = _emit_checkpoint_block(spec.checkpoint_int, spec.checkpoint_file)
+    checkpoint_section = ("\n" + _chk + "\n") if _chk else ""
+
+    # ------------------------------------------------------------------
     # Assemble
     # ------------------------------------------------------------------
     text = f"""\
@@ -206,6 +212,6 @@ laser1.do_continuous_injection = 0
 
 # --- Diagnostics ------------------------------------------------------------
 {diag_section}
-"""
+{checkpoint_section}"""
 
     return text

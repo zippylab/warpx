@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from textwrap import dedent
 
-from .blocks import DiagSpec, _emit_diag_block
+from .blocks import DiagSpec, _emit_checkpoint_block, _emit_diag_block
 from .spec import UniformPlasmaSpec
 
 
@@ -74,6 +74,9 @@ def generate_inputs_uniform_plasma(spec: UniformPlasmaSpec) -> str:
     )
     diag_lines = _emit_diag_block(_diag)
 
+    _chk = _emit_checkpoint_block(spec.checkpoint_int, spec.checkpoint_file)
+    checkpoint_lines = ("\n" + _chk) if _chk else ""
+
     # Particles per cell each dim: pad to 3 as well
     ppc_each_dim = " ".join(str(x) for x in _pad_to_3([1] * spec.dim, 1))
 
@@ -116,6 +119,7 @@ electrons.uy = 0.
 electrons.uz = 0.
 
 {diag_lines}
+{checkpoint_lines}
 """
 
     return dedent(text).strip() + "\n"

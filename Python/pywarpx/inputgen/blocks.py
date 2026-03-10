@@ -1102,6 +1102,24 @@ def _emit_amr_block(
     return "\n".join(lines)
 
 
+def _emit_checkpoint_block(checkpoint_int: Optional[int], checkpoint_file: str = "chk") -> str:
+    """Emit AMReX checkpoint ParmParse lines.
+
+    WarpX uses AMReX's checkpoint mechanism via the ``amr.*`` namespace:
+      - ``amr.check_int``  — write a checkpoint every N steps
+      - ``amr.check_file`` — checkpoint directory basename
+
+    Returns an empty string when ``checkpoint_int`` is None or <= 0.
+    """
+    if not checkpoint_int or checkpoint_int <= 0:
+        return ""
+    return (
+        f"# --- Checkpoint (AMReX) -----------------------------------------------\n"
+        f"amr.check_int = {checkpoint_int}\n"
+        f"amr.check_file = {checkpoint_file}"
+    )
+
+
 def _emit_diag_block(diag: DiagSpec, name: str = "diag1") -> str:
     """Emit the full diagnostics ParmParse block for a native (binary) generator.
 

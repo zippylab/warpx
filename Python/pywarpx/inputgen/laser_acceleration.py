@@ -15,6 +15,7 @@ composed of reusable block dataclasses from blocks.py.
 
 from dataclasses import asdict, dataclass, field
 from textwrap import dedent
+from typing import Optional
 
 from .blocks import (
     AMRSpec,
@@ -60,6 +61,9 @@ class LaserAccelerationSpec:
     implicit: ImplicitSolverSpec = field(default_factory=ImplicitSolverSpec)
     # AMR / resolution
     amr: AMRSpec = field(default_factory=AMRSpec)
+    # Checkpoint: write AMReX checkpoint every N steps; None = no checkpoint
+    checkpoint_int: Optional[int] = None
+    checkpoint_file: str = "chk"
 
     def __post_init__(self) -> None:
         # When dim=3 but domain list fields are still at 2D defaults,
@@ -96,6 +100,8 @@ class LaserAccelerationSpec:
             domain=domain, solver=solver, species=species, laser=laser, diag=diag,
             implicit=implicit,
             amr=amr,
+            checkpoint_int=d.get("checkpoint_int"),
+            checkpoint_file=d.get("checkpoint_file", "chk"),
         )
 
 

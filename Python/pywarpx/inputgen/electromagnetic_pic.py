@@ -39,6 +39,7 @@ from .blocks import (
     SpeciesDefSpec,
     _AMR_KEY_MAP,
     _emit_amr_block,
+    _emit_checkpoint_block,
     _emit_diag_block,
     _emit_picmi_diag_lines,
     suggest_cells,
@@ -142,6 +143,9 @@ class ElectromagneticPICSpec:
     implicit: ImplicitSolverSpec = field(default_factory=ImplicitSolverSpec)
     # AMR / resolution
     amr: AMRSpec = field(default_factory=AMRSpec)
+    # Checkpoint: write AMReX checkpoint every N steps; None = no checkpoint
+    checkpoint_int: Optional[int] = None
+    checkpoint_file: str = "chk"
 
     @classmethod
     def from_dict(cls, d: dict) -> "ElectromagneticPICSpec":
@@ -200,6 +204,8 @@ class ElectromagneticPICSpec:
             eb=eb,
             implicit=implicit,
             amr=amr,
+            checkpoint_int=d.get("checkpoint_int"),
+            checkpoint_file=d.get("checkpoint_file", "chk"),
         )
 
 
@@ -536,6 +542,12 @@ eb2.stl_file = {eb.stl_file}
     diag_section = _emit_diag_block(spec.diag)
 
     # ------------------------------------------------------------------
+    # Checkpoint (optional)
+    # ------------------------------------------------------------------
+    _chk = _emit_checkpoint_block(spec.checkpoint_int, spec.checkpoint_file)
+    checkpoint_section = ("\n" + _chk + "\n") if _chk else ""
+
+    # ------------------------------------------------------------------
     # Assemble
     # ------------------------------------------------------------------
     d = {
@@ -585,7 +597,7 @@ particles.species_names = {species_names}
 {eb_section}\
 # --- Diagnostics -------------------------------------------------------------
 {diag_section}
-"""
+{checkpoint_section}"""
 
 
 _GRID_CLASS_EM = {1: "Cartesian1DGrid", 2: "Cartesian2DGrid", 3: "Cartesian3DGrid"}

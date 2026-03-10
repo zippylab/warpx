@@ -37,6 +37,7 @@ from .blocks import (
     SpeciesSpec,
     _AMR_KEY_MAP,
     _emit_amr_block,
+    _emit_checkpoint_block,
     _emit_diag_block,
     _emit_picmi_diag_lines,
     suggest_cells,
@@ -124,6 +125,9 @@ class PWFASpec:
     )
     # AMR / resolution
     amr: AMRSpec = field(default_factory=AMRSpec)
+    # Checkpoint: write AMReX checkpoint every N steps; None = no checkpoint
+    checkpoint_int: Optional[int] = None
+    checkpoint_file: str = "chk"
 
     @classmethod
     def from_dict(cls, d: dict) -> "PWFASpec":
@@ -149,6 +153,8 @@ class PWFASpec:
             moving_window=d.get("moving_window", True),
             diag=diag,
             amr=amr,
+            checkpoint_int=d.get("checkpoint_int"),
+            checkpoint_file=d.get("checkpoint_file", "chk"),
         )
 
 
@@ -242,6 +248,12 @@ warpx.moving_window_v = 1.0  # in units of c
     # ------------------------------------------------------------------
     diag_section = _emit_diag_block(spec.diag)
 
+    # ------------------------------------------------------------------
+    # Checkpoint (optional)
+    # ------------------------------------------------------------------
+    _chk = _emit_checkpoint_block(spec.checkpoint_int, spec.checkpoint_file)
+    checkpoint_section = ("\n" + _chk + "\n") if _chk else ""
+
     d = {
         "name": spec.name,
         "domain": asdict(spec.domain),
@@ -314,7 +326,7 @@ protons.uz_m = 0.0
 
 # --- Diagnostics ------------------------------------------------------------
 {diag_section}
-"""
+{checkpoint_section}"""
     return text
 
 

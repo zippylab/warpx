@@ -83,6 +83,10 @@ class UniformPlasmaSpec:
     amr_max_level: int = 0
     amr_blocking_factor: int = 8
 
+    # Checkpoint: write AMReX checkpoint every N steps; None = no checkpoint
+    checkpoint_int: Optional[int] = None
+    checkpoint_file: str = "chk"
+
     # Metadata
     name: str = "uniform_plasma"
 
