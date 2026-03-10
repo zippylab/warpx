@@ -325,6 +325,86 @@ def test_em_pic_dx_target():
 
 
 # ---------------------------------------------------------------------------
+# New physics check tests
+# ---------------------------------------------------------------------------
+
+def test_em_pic_laser_resolution_error():
+    """< 5 cells per laser wavelength → ERROR."""
+    # wavelength=0.8μm, 10 cells over 1mm → dx=100μm → 0.008 cells/λ → ERROR
+    spec = _spec(
+        dim=1,
+        number_of_cells=[10],
+        lower_bound=[0.0],
+        upper_bound=[1e-3],
+        field_bc=["periodic"],
+        wavelength=0.8e-6, a0=1.0, waist=100e-6, duration=30e-15,
+        focal_position_z=0.5e-3, centroid_position_z=0.0,
+    )
+    r = validate_electromagnetic_pic_spec(spec)
+    assert not r.ok
+    issues = [i for i in r.issues if i.code == "em.laser_resolution"]
+    assert issues and issues[0].severity == Severity.ERROR
+
+
+def test_em_pic_laser_resolution_warns():
+    """5–10 cells per laser wavelength → WARNING (not ERROR)."""
+    # wavelength=0.8μm, 8000 cells over 1mm → dx=0.125μm → 6.4 cells/λ → WARNING
+    spec = _spec(
+        dim=1,
+        number_of_cells=[8000],
+        lower_bound=[0.0],
+        upper_bound=[1e-3],
+        field_bc=["periodic"],
+        wavelength=0.8e-6, a0=1.0, waist=100e-6, duration=30e-15,
+        focal_position_z=0.5e-3, centroid_position_z=0.0,
+    )
+    r = validate_electromagnetic_pic_spec(spec)
+    issues = [i for i in r.issues if i.code == "em.laser_resolution"]
+    assert issues and issues[0].severity == Severity.WARNING
+    assert r.ok  # warning only
+
+
+def test_em_pic_laser_resolution_ok():
+    """≥ 10 cells per laser wavelength → no laser resolution issue."""
+    # wavelength=0.8μm, 20000 cells over 1mm → dx=0.05μm → 16 cells/λ → OK
+    spec = _spec(
+        dim=1,
+        number_of_cells=[20000],
+        lower_bound=[0.0],
+        upper_bound=[1e-3],
+        field_bc=["periodic"],
+        wavelength=0.8e-6, a0=1.0, waist=100e-6, duration=30e-15,
+        focal_position_z=0.5e-3, centroid_position_z=0.0,
+    )
+    r = validate_electromagnetic_pic_spec(spec)
+    assert not any(i.code == "em.laser_resolution" for i in r.issues)
+
+
+def test_em_pic_debye_resolution_warning_only():
+    """dx > λ_De for species with temperature → WARNING only (not ERROR) for EM-PIC."""
+    # electrons: n=1e24, Te=1eV → λ_De≈7.4nm; dx=78nm (16 cells over 1.25μm) → ratio≈10.5 → WARNING
+    species = [
+        {"name": "electrons", "charge": -1, "mass_amu": 5.486e-4, "density": 1e24,
+         "ppc": 4, "temperature_eV": 1.0},
+        {"name": "protons", "charge": 1, "mass_amu": 1.00728, "density": 1e24, "ppc": 4},
+    ]
+    spec = ElectromagneticPICSpec.from_dict({
+        "species": species,
+        "dim": 1,
+        "number_of_cells": [16],
+        "lower_bound": [0.0],
+        "upper_bound": [1.25e-6],
+        "field_bc": ["periodic"],
+    })
+    r = validate_electromagnetic_pic_spec(spec)
+    issues = [i for i in r.issues if i.code == "em.debye_resolution"]
+    assert issues and issues[0].severity == Severity.WARNING
+    # Must still be OK overall (only a warning)
+    errors = [i for i in r.issues if i.severity == Severity.ERROR]
+    assert not errors
+
+
+# ---------------------------------------------------------------------------
 # PICMI generator smoke tests
 # ---------------------------------------------------------------------------
 

@@ -214,6 +214,28 @@ def test_es_pic_generate_asymmetric_bc():
 
 
 # ---------------------------------------------------------------------------
+# FFT/periodic BC tests
+# ---------------------------------------------------------------------------
+
+def test_es_pic_fft_requires_periodic_error():
+    """poisson_solver='fft' with non-periodic BC → ERROR."""
+    spec = _spec(
+        dim=1, number_of_cells=[200], lower_bound=[0.0], upper_bound=[1e-2],
+        field_bc=["pec"], poisson_solver="fft",
+    )
+    r = validate_electrostatic_pic_spec(spec)
+    assert not r.ok
+    assert any(i.code == "es.fft_requires_periodic" for i in r.issues)
+
+
+def test_es_pic_fft_with_periodic_ok():
+    """poisson_solver='fft' with all-periodic BC → no FFT error."""
+    spec = _spec(poisson_solver="fft", field_bc=["periodic"])
+    r = validate_electrostatic_pic_spec(spec)
+    assert not any(i.code == "es.fft_requires_periodic" for i in r.issues)
+
+
+# ---------------------------------------------------------------------------
 # AMR tests
 # ---------------------------------------------------------------------------
 

@@ -104,7 +104,7 @@ def test_es_validate_plasma_frequency_unstable():
     )
     r = validate_electrostatic_plasma_spec(spec)
     assert not r.ok
-    assert any(i.code == "es.plasma_frequency" for i in r.issues)
+    assert any(i.code == "es.debye.dt_omega_pe" for i in r.issues)
 
 
 def test_es_validate_plasma_frequency_accuracy_warns():
@@ -118,7 +118,7 @@ def test_es_validate_plasma_frequency_accuracy_warns():
     )
     r = validate_electrostatic_plasma_spec(spec)
     assert r.ok  # warning only
-    assert any(i.code == "es.plasma_frequency.accuracy" for i in r.issues)
+    assert any(i.code == "es.debye.dt_omega_pe" for i in r.issues)
 
 
 def test_es_generate_inputs():

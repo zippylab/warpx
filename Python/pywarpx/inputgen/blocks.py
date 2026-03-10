@@ -1025,6 +1025,169 @@ def validate_amr(amr: AMRSpec, domain: DomainSpec) -> ValidationReport:
     return r
 
 
+# ---------------------------------------------------------------------------
+# Shared physics validation helpers (used across multiple sim-type validators)
+# ---------------------------------------------------------------------------
+
+_EPS0_PHYS = 8.854187817e-12
+_Q_E_PHYS  = 1.602176634e-19
+_M_E_PHYS  = 9.1093837015e-31
+_M_P_PHYS  = 1.67262192369e-27
+_C_PHYS    = 299792458.0
+_RK4_WHISTLER_LIMIT = 2.0 * math.sqrt(2.0)   # ≈ 2.828
+
+
+def check_const_dt_required(const_dt: float, r: ValidationReport, code_prefix: str) -> None:
+    """ERROR if const_dt <= 0."""
+    if const_dt <= 0:
+        r.add(Severity.ERROR, f"{code_prefix}.const_dt",
+              "const_dt must be > 0", const_dt=const_dt)
+
+
+def check_debye_resolution(
+    dx_max: float,
+    density: float,
+    temperature_eV: float,
+    r: ValidationReport,
+    code_prefix: str = "es",
+    species_name: Optional[str] = None,
+    error_above: float = 2.0,
+) -> None:
+    """Warn/error when the grid cannot resolve the electron Debye length.
+
+    WARNING when 1 < dx/λ_De ≤ error_above; ERROR when dx/λ_De > error_above.
+    λ_De = sqrt(ε₀·Te_eV / (n·q_e)).
+    Set error_above=inf to emit WARNING only for all ratios > 1 (e.g. EM-PIC).
+    """
+    if density <= 0 or temperature_eV <= 0:
+        return
+    lam_De = math.sqrt(_EPS0_PHYS * temperature_eV / (density * _Q_E_PHYS))
+    ratio = dx_max / lam_De
+    if ratio <= 1.0:
+        return
+    sp_info = f"species '{species_name}', " if species_name else ""
+    n_crit = _EPS0_PHYS * temperature_eV / (dx_max**2 * _Q_E_PHYS)
+    base_msg = (
+        f"dx={dx_max:.3e} m vs electron Debye length λ_De={lam_De:.3e} m "
+        f"(dx/λ_De={ratio:.2f}; {sp_info}"
+        f"n={density:.2e} m⁻³, Te={temperature_eV} eV). "
+        f"ES-PIC requires dx ≲ λ_De to avoid finite-grid instability "
+        f"(exponential numerical heating regardless of ppc). "
+        f"Reduce density below {n_crit:.2e} m⁻³ so that λ_De ≥ dx, "
+        f"or increase number_of_cells so that dx ≤ {lam_De:.3e} m."
+    )
+    kwargs: dict = dict(
+        dx_max=round(dx_max, 9),
+        lambda_De=round(lam_De, 9),
+        dx_over_lambda_De=round(ratio, 4),
+    )
+    if species_name:
+        kwargs["species"] = species_name
+    if ratio > error_above:
+        r.add(Severity.ERROR, f"{code_prefix}.debye_resolution",
+              f"dx/λ_De={ratio:.1f} >> 1 — finite-grid instability guaranteed: " + base_msg,
+              **kwargs)
+    else:
+        r.add(Severity.WARNING, f"{code_prefix}.debye_resolution",
+              f"dx > λ_De — finite-grid instability risk: " + base_msg,
+              **kwargs)
+
+
+def check_boris_stability(
+    const_dt: float,
+    density: float,
+    r: ValidationReport,
+    code_prefix: str = "es",
+    error_above: float = 2.0,
+) -> None:
+    """ERROR if dt·ω_pe ≥ error_above (explicit Boris unstable); WARNING if dt·ω_pe > 0.2.
+
+    ω_pe = sqrt(n·q_e² / (m_e·ε₀)).
+    Set error_above=inf to emit WARNING only for all marginal values (e.g. EM-PIC).
+    """
+    if density <= 0:
+        return
+    omega_pe = math.sqrt(density * _Q_E_PHYS**2 / (_M_E_PHYS * _EPS0_PHYS))
+    dt_omega = const_dt * omega_pe
+    if dt_omega >= error_above:
+        r.add(
+            Severity.ERROR, f"{code_prefix}.debye.dt_omega_pe",
+            f"dt * omega_pe = {dt_omega:.3f} >= {error_above:.3g} — explicit Boris is "
+            f"unconditionally unstable (max density: {density:.2e} m^-3, const_dt: {const_dt:.2e} s)",
+            dt_omega_pe=dt_omega, n_max=density,
+        )
+    elif dt_omega > 0.2:
+        r.add(
+            Severity.WARNING, f"{code_prefix}.debye.dt_omega_pe",
+            f"dt * omega_pe = {dt_omega:.3f} > 0.2 — accuracy may be reduced "
+            f"(max density: {density:.2e} m^-3, const_dt: {const_dt:.2e} s)",
+            dt_omega_pe=dt_omega, n_max=density,
+        )
+
+
+def check_whistler_cfl_hybrid(
+    dx_min: float,
+    b0_mag: float,
+    n: float,
+    mass_amu: float,
+    const_dt: float,
+    substeps: int,
+    r: ValidationReport,
+    code_prefix: str,
+) -> None:
+    """ERROR if the whistler CFL criterion is violated for hybrid-PIC.
+
+    For explicit RK4 subcycling, the Nyquist whistler mode must satisfy:
+        z = (π·l_i/dx)²·ω_ci·dt_sub < 2√2 ≈ 2.83
+    where l_i = c/ω_pi is the ion skin depth, dt_sub = const_dt/substeps.
+    """
+    if b0_mag == 0.0 or n <= 0 or mass_amu <= 0:
+        return
+    m_i = mass_amu * _M_P_PHYS
+    omega_ci = _Q_E_PHYS * b0_mag / m_i
+    omega_pi = math.sqrt(n * _Q_E_PHYS**2 / (m_i * _EPS0_PHYS))
+    l_i = _C_PHYS / omega_pi
+    dt_sub = const_dt / substeps
+    k_nyq_li = math.pi * l_i / dx_min
+    z_max = k_nyq_li**2 * omega_ci * dt_sub
+    if z_max > _RK4_WHISTLER_LIMIT:
+        substeps_min = int(math.ceil(const_dt * omega_ci * k_nyq_li**2 / _RK4_WHISTLER_LIMIT))
+        r.add(
+            Severity.ERROR,
+            f"{code_prefix}.cfl.whistler",
+            (
+                f"Whistler CFL z={z_max:.3g} > {_RK4_WHISTLER_LIMIT:.3g}: "
+                f"sub-inertial Nyquist modes are numerically unstable. "
+                f"l_i={l_i:.3e} m; dx={dx_min:.3e} m (dx/l_i={dx_min/l_i:.4f}). "
+                f"Recommend dx <= l_i/10 = {l_i/10:.3e} m or substeps>={substeps_min}."
+            ),
+            z_whistler=round(z_max, 3),
+            substeps_min=substeps_min,
+            l_i=round(l_i, 6),
+            dx=round(dx_min, 8),
+        )
+
+
+def check_fft_requires_periodic(
+    poisson_solver: str,
+    field_bc: List[str],
+    r: ValidationReport,
+    code_prefix: str = "es",
+) -> None:
+    """ERROR if poisson_solver='fft' but any field_bc is not 'periodic'."""
+    if poisson_solver != "fft":
+        return
+    non_periodic = [bc for bc in field_bc if bc != "periodic"]
+    if non_periodic:
+        r.add(
+            Severity.ERROR, f"{code_prefix}.fft_requires_periodic",
+            f"poisson_solver='fft' requires all field_bc to be 'periodic'; "
+            f"found non-periodic BCs: {non_periodic}. "
+            f"Use poisson_solver='multigrid' for non-periodic boundaries.",
+            non_periodic_bcs=non_periodic,
+        )
+
+
 def suggest_cells(
     lower_bound: List[float],
     upper_bound: List[float],

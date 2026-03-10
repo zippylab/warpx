@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-import math
-
-from .blocks import validate_amr, validate_diag, validate_domain, validate_eb, validate_solver
+from .blocks import (
+    check_boris_stability,
+    check_debye_resolution,
+    validate_amr,
+    validate_diag,
+    validate_domain,
+    validate_eb,
+    validate_solver,
+)
 from .electrostatic_plasma import ElectrostaticPlasmaSpec
 from .spec import Severity, ValidationReport
-
-# CODATA 2018 values
-_EPS0 = 8.854187817e-12
-_M_E  = 9.1093837015e-31
-_Q_E  = 1.602176634e-19
-_C    = 299792458.0
 
 
 def validate_electrostatic_plasma_spec(spec: ElectrostaticPlasmaSpec) -> ValidationReport:
@@ -21,8 +21,9 @@ def validate_electrostatic_plasma_spec(spec: ElectrostaticPlasmaSpec) -> Validat
     2. Solver parameters (max_steps > 0)
     3. Diagnostics
     4. ES-specific scalar parameters (n0, Te, Ti, const_dt, …)
-    5. Debye length resolution: dx < λ_De
-    6. Electron plasma frequency stability: dt * ω_pe < 2
+    5. FFT/periodic BC compatibility
+    6. Debye length resolution: dx < λ_De
+    7. Electron plasma frequency stability: dt * ω_pe < 2
     """
     r = ValidationReport()
 
@@ -39,8 +40,16 @@ def validate_electrostatic_plasma_spec(spec: ElectrostaticPlasmaSpec) -> Validat
     if not r.ok:
         return r
 
-    _check_debye_resolution(r, spec)
-    _check_plasma_frequency(r, spec)
+    dx_max = max(
+        (hi - lo) / nc
+        for lo, hi, nc in zip(
+            spec.domain.lower_bound,
+            spec.domain.upper_bound,
+            spec.domain.number_of_cells,
+        )
+    )
+    check_debye_resolution(dx_max, spec.n0, spec.Te, r, code_prefix="es")
+    check_boris_stability(spec.const_dt, spec.n0, r, code_prefix="es")
 
     return r
 
@@ -72,96 +81,3 @@ def _check_scalars(r: ValidationReport, spec: ElectrostaticPlasmaSpec) -> None:
     if spec.poisson_precision <= 0:
         r.add(Severity.ERROR, "es.poisson_precision",
               "poisson_precision must be > 0", poisson_precision=spec.poisson_precision)
-
-
-def _check_debye_resolution(r: ValidationReport, spec: ElectrostaticPlasmaSpec) -> None:
-    """Warn if the largest grid cell exceeds the electron Debye length.
-
-    Electrostatic simulations must resolve λ_De to correctly capture
-    space-charge shielding and plasma oscillations. Aliasing occurs for dx > λ_De.
-
-    Debye length: λ_De = sqrt(ε₀ · Te_eV / (n₀ · q_e))
-    """
-    # λ_De = sqrt(ε₀ * Te [J] / (n0 * q_e²)) = sqrt(ε₀ * Te_eV / (n0 * q_e))
-    lam_De = math.sqrt(_EPS0 * spec.Te / (spec.n0 * _Q_E))
-
-    dx_max = max(
-        (hi - lo) / nc
-        for lo, hi, nc in zip(
-            spec.domain.lower_bound,
-            spec.domain.upper_bound,
-            spec.domain.number_of_cells,
-        )
-    )
-
-    ratio = dx_max / lam_De
-    if ratio <= 1.0:
-        return
-
-    n_crit = _EPS0 * spec.Te / (dx_max**2 * _Q_E)
-    base_msg = (
-        f"dx={dx_max:.3e} m vs Debye length λ_De={lam_De:.3e} m "
-        f"(dx/λ_De={ratio:.2f}, n0={spec.n0:.2e} m⁻³, Te={spec.Te} eV). "
-        f"ES simulations require dx ≲ λ_De to avoid finite-grid instability "
-        f"(exponential numerical heating). "
-        f"Increase number_of_cells so that dx ≤ {lam_De:.3e} m, "
-        f"or reduce n0 below {n_crit:.2e} m⁻³."
-    )
-    if ratio > 2.0:
-        r.add(
-            Severity.ERROR,
-            "es.debye_resolution",
-            f"dx/λ_De={ratio:.1f} >> 1 — finite-grid instability guaranteed: " + base_msg,
-            dx_max=round(dx_max, 9),
-            lambda_De=round(lam_De, 9),
-            dx_over_lambda_De=round(ratio, 4),
-        )
-    else:
-        r.add(
-            Severity.WARNING,
-            "es.debye_resolution",
-            f"dx > λ_De — finite-grid instability risk: " + base_msg,
-            dx_max=round(dx_max, 9),
-            lambda_De=round(lam_De, 9),
-            dx_over_lambda_De=round(ratio, 4),
-        )
-
-
-def _check_plasma_frequency(r: ValidationReport, spec: ElectrostaticPlasmaSpec) -> None:
-    """Check explicit Boris pusher stability and accuracy w.r.t. ω_pe.
-
-    The explicit leapfrog (Boris) pusher is unstable when dt * ω_pe >= 2.
-    Accuracy degrades noticeably when dt * ω_pe > 0.2.
-
-    ω_pe = sqrt(n₀ · q_e² / (m_e · ε₀))
-    """
-    omega_pe = math.sqrt(spec.n0 * _Q_E ** 2 / (_M_E * _EPS0))
-    dt_ope   = spec.const_dt * omega_pe
-
-    if dt_ope >= 2.0:
-        r.add(
-            Severity.ERROR,
-            "es.plasma_frequency",
-            (
-                f"dt × ω_pe = {dt_ope:.3g} >= 2: the explicit Boris pusher is unstable. "
-                f"Plasma frequency ω_pe = {omega_pe:.3e} rad/s; "
-                f"maximum stable dt = {2.0 / omega_pe:.3e} s. "
-                f"Reduce const_dt or decrease n0."
-            ),
-            omega_pe=round(omega_pe, 3),
-            dt_ope=round(dt_ope, 4),
-            max_stable_dt=round(2.0 / omega_pe, 12),
-        )
-    elif dt_ope > 0.2:
-        r.add(
-            Severity.WARNING,
-            "es.plasma_frequency.accuracy",
-            (
-                f"dt × ω_pe = {dt_ope:.3g} > 0.2: electron plasma oscillations may be "
-                f"under-resolved. Recommend dt × ω_pe < 0.1 for good accuracy. "
-                f"ω_pe = {omega_pe:.3e} rad/s; suggested dt < {0.1 / omega_pe:.3e} s."
-            ),
-            omega_pe=round(omega_pe, 3),
-            dt_ope=round(dt_ope, 4),
-            suggested_dt=round(0.1 / omega_pe, 12),
-        )

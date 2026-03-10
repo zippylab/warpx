@@ -88,6 +88,23 @@ def test_beam_generate_auto_core_drift():
 
 
 # ---------------------------------------------------------------------------
+# Density consistency test
+# ---------------------------------------------------------------------------
+
+def test_beam_density_mismatch_warns():
+    """Total ion density >> n0_ref → density_mismatch WARNING."""
+    spec = _spec(
+        core_density=1e24, beam_density=1e24,  # total = 2e24
+        n0_ref=1e20,  # 4 orders of magnitude lower
+        dim=1, number_of_cells=[10], lower_bound=[0.0], upper_bound=[1.0],
+        field_bc=["periodic"],
+    )
+    r = validate_ion_beam_instability_spec(spec)
+    assert any(i.code == "beam.density_mismatch" and i.severity == Severity.WARNING
+               for i in r.issues)
+
+
+# ---------------------------------------------------------------------------
 # AMR tests
 # ---------------------------------------------------------------------------
 
