@@ -54,16 +54,31 @@ def test_es_validate_bad_solver_type():
 
 
 def test_es_validate_debye_resolution_warns():
-    """dx >> λ_De → Debye resolution warning (not error)."""
-    # n0=1e16, Te=1 eV: λ_De ≈ 74.3 μm; dx=50mm >> λ_De
+    """1 < dx/λ_De ≤ 2 → WARNING only (not error)."""
+    # n0=1e16, Te=1 eV: λ_De ≈ 74.3 μm; dx = 10 cells over 1.115mm → 111.5 μm ≈ 1.5 λ_De
+    spec = _spec(
+        dim=1, number_of_cells=[10], lower_bound=[0.0], upper_bound=[1.115e-3],
+        field_bc=["periodic"],
+        n0=1e16, Te=1.0, const_dt=1e-12,
+    )
+    r = validate_electrostatic_plasma_spec(spec)
+    assert r.ok  # warning only
+    issues = [i for i in r.issues if i.code == "es.debye_resolution"]
+    assert issues and issues[0].severity == Severity.WARNING
+
+
+def test_es_validate_debye_resolution_error():
+    """dx/λ_De > 2 → ERROR (finite-grid instability guaranteed)."""
+    # n0=1e16, Te=1 eV: λ_De ≈ 74.3 μm; dx=50mm → dx/λ_De ≈ 672 → ERROR
     spec = _spec(
         dim=1, number_of_cells=[10], lower_bound=[0.0], upper_bound=[0.5],
         field_bc=["periodic"],
         n0=1e16, Te=1.0, const_dt=1e-12,
     )
     r = validate_electrostatic_plasma_spec(spec)
-    assert r.ok  # warning only
-    assert any(i.code == "es.debye_resolution" for i in r.issues)
+    assert not r.ok
+    issues = [i for i in r.issues if i.code == "es.debye_resolution"]
+    assert issues and issues[0].severity == Severity.ERROR
 
 
 def test_es_validate_debye_resolution_ok():

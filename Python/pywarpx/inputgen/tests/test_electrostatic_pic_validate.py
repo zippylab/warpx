@@ -101,6 +101,45 @@ def test_es_pic_collision_bad_type():
     assert any(i.code == "collision.type" for i in r.issues)
 
 
+def test_es_pic_debye_resolution_warns():
+    """1 < dx/λ_De ≤ 2 → WARNING only (not error)."""
+    # electrons: n=1e16, Te=1eV → λ_De ≈ 74.3 μm; 10 cells over 1.115mm → dx ≈ 111.5 μm ≈ 1.5 λ_De
+    species = [
+        {"name": "electrons", "charge": -1, "mass_amu": 5.486e-4, "density": 1e16,
+         "ppc": 16, "temperature_eV": 1.0},
+        {"name": "ions", "charge": 1, "mass_amu": 1.00728, "density": 1e16, "ppc": 16},
+    ]
+    spec = ElectrostaticPICSpec.from_dict({
+        "species": species, "const_dt": 1e-12,
+        "dim": 1, "number_of_cells": [10], "lower_bound": [0.0], "upper_bound": [1.115e-3],
+        "field_bc": ["periodic"],
+    })
+    r = validate_electrostatic_pic_spec(spec)
+    assert r.ok  # warning only
+    issues = [i for i in r.issues if i.code == "es.debye_resolution"]
+    assert issues and issues[0].severity == Severity.WARNING
+
+
+def test_es_pic_debye_resolution_error():
+    """dx/λ_De > 2 → ERROR (finite-grid instability guaranteed)."""
+    # 3D 64^3, 10cm box, n=1e16, Te=1eV → dx=1.5625mm, λ_De=74μm, dx/λ_De≈21 → ERROR
+    species = [
+        {"name": "electrons", "charge": -1, "mass_amu": 5.486e-4, "density": 1e16,
+         "ppc": 8, "temperature_eV": 1.0},
+        {"name": "protons", "charge": 1, "mass_amu": 1.00728, "density": 1e16, "ppc": 8},
+    ]
+    spec = ElectrostaticPICSpec.from_dict({
+        "species": species, "const_dt": 2e-11,
+        "dim": 3, "number_of_cells": [64, 64, 64],
+        "lower_bound": [0, 0, 0], "upper_bound": [0.1, 0.1, 0.1],
+        "field_bc": ["pec", "pec", "pec"],
+    })
+    r = validate_electrostatic_pic_spec(spec)
+    assert not r.ok
+    issues = [i for i in r.issues if i.code == "es.debye_resolution"]
+    assert issues and issues[0].severity == Severity.ERROR
+
+
 def test_es_pic_field_bc_lo_wrong_length():
     """field_bc_lo length != dim → ERROR."""
     # Use dataclass constructor directly to avoid from_dict domain defaults

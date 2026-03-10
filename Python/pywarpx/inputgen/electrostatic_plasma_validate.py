@@ -95,17 +95,32 @@ def _check_debye_resolution(r: ValidationReport, spec: ElectrostaticPlasmaSpec) 
     )
 
     ratio = dx_max / lam_De
-    if ratio > 1.0:
+    if ratio <= 1.0:
+        return
+
+    n_crit = _EPS0 * spec.Te / (dx_max**2 * _Q_E)
+    base_msg = (
+        f"dx={dx_max:.3e} m vs Debye length λ_De={lam_De:.3e} m "
+        f"(dx/λ_De={ratio:.2f}, n0={spec.n0:.2e} m⁻³, Te={spec.Te} eV). "
+        f"ES simulations require dx ≲ λ_De to avoid finite-grid instability "
+        f"(exponential numerical heating). "
+        f"Increase number_of_cells so that dx ≤ {lam_De:.3e} m, "
+        f"or reduce n0 below {n_crit:.2e} m⁻³."
+    )
+    if ratio > 2.0:
+        r.add(
+            Severity.ERROR,
+            "es.debye_resolution",
+            f"dx/λ_De={ratio:.1f} >> 1 — finite-grid instability guaranteed: " + base_msg,
+            dx_max=round(dx_max, 9),
+            lambda_De=round(lam_De, 9),
+            dx_over_lambda_De=round(ratio, 4),
+        )
+    else:
         r.add(
             Severity.WARNING,
             "es.debye_resolution",
-            (
-                f"Max grid cell dx={dx_max:.3e} m > Debye length λ_De={lam_De:.3e} m "
-                f"(dx/λ_De={ratio:.2f}). Electrostatic simulations require dx < λ_De "
-                f"to resolve space-charge shielding. "
-                f"Increase number_of_cells or reduce domain size so that dx < {lam_De:.3e} m, "
-                f"or increase n0 above {_EPS0 * spec.Te / (dx_max**2 * _Q_E):.2e} m^-3."
-            ),
+            f"dx > λ_De — finite-grid instability risk: " + base_msg,
             dx_max=round(dx_max, 9),
             lambda_De=round(lam_De, 9),
             dx_over_lambda_De=round(ratio, 4),
