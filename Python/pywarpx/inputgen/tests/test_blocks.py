@@ -1,12 +1,15 @@
-"""Tests for blocks.py — DiagSpec, ReducedDiagSpec, validate_diag, _emit_diag_block."""
+"""Tests for blocks.py — DiagSpec, ReducedDiagSpec, validate_diag, _emit_diag_block,
+and validate_implicit_solver."""
 
 import pytest
 from pywarpx.inputgen.blocks import (
     DiagSpec,
+    ImplicitSolverSpec,
     ReducedDiagSpec,
     _emit_diag_block,
     _emit_picmi_diag_lines,
     validate_diag,
+    validate_implicit_solver,
 )
 from pywarpx.inputgen.spec import Severity
 
@@ -194,3 +197,58 @@ def test_emit_picmi_diag_lines_reduced():
     code = _emit_picmi_diag_lines(diag, [])
     assert "picmi.ReducedDiagnostic" in code
     assert "FieldEnergy" in code
+
+
+# ---------------------------------------------------------------------------
+# validate_implicit_solver: theta stability
+# ---------------------------------------------------------------------------
+
+def _imp(**kwargs) -> ImplicitSolverSpec:
+    """Return an enabled ImplicitSolverSpec with valid defaults, overridden by kwargs."""
+    base = dict(enabled=True, theta=0.6, solver_type="picard",
+                max_iters=30, tolerance=1e-3, const_dt=1e-10)
+    base.update(kwargs)
+    return ImplicitSolverSpec(**base)
+
+
+def test_implicit_disabled_always_ok():
+    imp = ImplicitSolverSpec(enabled=False, theta=0.1)  # would be unstable if enabled
+    r = validate_implicit_solver(imp)
+    assert r.ok
+
+
+def test_implicit_theta_range_error():
+    """theta <= 0 or theta > 1 should produce the range ERROR."""
+    for bad in (0.0, -0.1, 1.5):
+        r = validate_implicit_solver(_imp(theta=bad))
+        codes = [i.code for i in r.issues]
+        assert "implicit.theta" in codes, f"Expected range error for theta={bad}"
+        assert not any(c == "implicit.theta.unstable" for c in codes)
+
+
+def test_implicit_theta_unstable_error():
+    """0 < theta < 0.5 should produce an unconditional-instability ERROR."""
+    for bad in (0.1, 0.3, 0.49):
+        r = validate_implicit_solver(_imp(theta=bad))
+        codes = [i.code for i in r.issues]
+        assert "implicit.theta.unstable" in codes, f"Expected instability error for theta={bad}"
+        severities = {i.code: i.severity for i in r.issues}
+        assert severities["implicit.theta.unstable"] == Severity.ERROR
+
+
+def test_implicit_theta_05_no_damping_warning():
+    """theta=0.5 (Crank-Nicolson) should trigger the no-damping WARNING."""
+    r = validate_implicit_solver(_imp(theta=0.5))
+    codes = [i.code for i in r.issues]
+    assert "implicit.theta.no_damping" in codes
+    severities = {i.code: i.severity for i in r.issues}
+    assert severities["implicit.theta.no_damping"] == Severity.WARNING
+
+
+def test_implicit_theta_above_05_ok():
+    """theta > 0.5 and <= 1 should raise no theta-related issues."""
+    for good in (0.51, 0.6, 0.8, 1.0):
+        r = validate_implicit_solver(_imp(theta=good))
+        theta_codes = [i.code for i in r.issues
+                       if i.code.startswith("implicit.theta")]
+        assert theta_codes == [], f"Unexpected theta issue for theta={good}: {theta_codes}"

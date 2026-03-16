@@ -10,6 +10,7 @@ from .blocks import (
     check_boris_stability,
     check_debye_resolution,
     check_fft_requires_periodic,
+    check_periodic_bc_symmetry,
     validate_amr,
     validate_collision,
     validate_diag,
@@ -159,6 +160,10 @@ def validate_electrostatic_pic_spec(spec: ElectrostaticPICSpec) -> ValidationRep
     check_fft_requires_periodic(
         spec.solver.poisson_solver, spec.domain.field_bc, r, code_prefix="es"
     )
+    domain_bc = spec.domain.field_bc
+    lo_bcs = spec.field_bc_lo if spec.field_bc_lo is not None else domain_bc
+    hi_bcs = spec.field_bc_hi if spec.field_bc_hi is not None else domain_bc
+    check_periodic_bc_symmetry(spec.domain.dim, lo_bcs, hi_bcs, r, code_prefix="es")
 
     # All-Neumann singularity check: multigrid Poisson is singular without any
     # Dirichlet (PEC) boundary.  AMReX MLMG enforces solvability by subtracting

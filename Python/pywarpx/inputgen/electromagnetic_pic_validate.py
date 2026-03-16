@@ -9,6 +9,7 @@ from .blocks import (
     ValidationReport,
     check_boris_stability,
     check_debye_resolution,
+    check_periodic_bc_symmetry,
     validate_amr,
     validate_collision,
     validate_diag,
@@ -102,6 +103,73 @@ def _check_plasma_physics(spec: ElectromagneticPICSpec, r: ValidationReport) -> 
         )
 
 
+def _check_implicit_tolerance_cold_plasma(spec: ElectromagneticPICSpec, r: ValidationReport) -> None:
+    """Warn when tight implicit solver tolerance is paired with a cold quasi-neutral plasma.
+
+    For a cold quasi-neutral plasma the deposited current J is O(machine epsilon)
+    on early timesteps, so the Picard/Newton residual ||r|| is tiny.  A tight
+    relative tolerance (< 1e-6) then requires many solver iterations to satisfy
+    ||r_k||/||r_0|| < tolerance, even though the physics is already correct to
+    well within simulation accuracy.  The default tolerance of 1e-3 is appropriate
+    for all practical EM-PIC runs; tighter values waste compute without benefit.
+    """
+    if not spec.implicit.enabled:
+        return
+    if spec.implicit.tolerance >= 1e-6:
+        return
+
+    active = [sp for sp in spec.species
+              if sp.injection_style != "none" and sp.density > 0]
+    if not active:
+        return
+    if not all(sp.temperature_eV == 0.0 for sp in active):
+        return  # at least one warm species → non-trivial thermal current J
+
+    max_density = max(sp.density for sp in active)
+    net_charge_density = abs(sum(sp.charge * sp.density for sp in active))
+    if net_charge_density / max_density >= 0.01:
+        return  # significant net charge → J is not near-zero
+
+    r.add(
+        Severity.WARNING, "implicit.tolerance.tight_cold_plasma",
+        f"implicit.tolerance={spec.implicit.tolerance:.2g} is much tighter than "
+        "needed for a cold quasi-neutral plasma (all injected species have "
+        "temperature_eV=0 and net charge < 1%% of peak density).  "
+        "Near-zero J on early timesteps makes the relative-residual criterion "
+        "very expensive to satisfy; the solver will run to max_iters per step "
+        "without meaningful improvement.  Use the default tolerance of 1e-3.",
+        tolerance=spec.implicit.tolerance,
+    )
+
+
+def _check_direct_deposition_periodic_bc(spec: ElectromagneticPICSpec, r: ValidationReport) -> None:
+    """Warn when direct current deposition is combined with any periodic axis.
+
+    ``direct`` deposition does not satisfy ∇·J = −∂ρ/∂t, so Gauss's law
+    (∇·E = ρ/ε₀) drifts over time.  On periodic axes the error accumulates
+    without any correction mechanism and generates spurious low-mode
+    electrostatic noise.  ``esirkepov`` is charge-conserving and is the
+    correct choice for periodic-BC runs.
+    """
+    if spec.solver.current_deposition != "direct":
+        return
+
+    domain_bc = spec.domain.field_bc  # List[str], one per axis
+    lo_bcs = spec.field_bc_lo if spec.field_bc_lo is not None else domain_bc
+    hi_bcs = spec.field_bc_hi if spec.field_bc_hi is not None else domain_bc
+
+    if not any(bc == "periodic" for bc in lo_bcs + hi_bcs):
+        return
+
+    r.add(
+        Severity.WARNING, "em.direct_deposition.periodic_bc",
+        "current_deposition='direct' does not conserve charge (∇·J ≠ −∂ρ/∂t). "
+        "On periodic axes the resulting Gauss's-law error accumulates without "
+        "correction and generates unphysical electrostatic modes. "
+        "Use current_deposition='esirkepov' (charge-conserving) instead.",
+    )
+
+
 def _check_laser_resolution(spec: ElectromagneticPICSpec, r: ValidationReport) -> None:
     """Warn if the grid is too coarse to resolve the laser wavelength."""
     if spec.laser is None:
@@ -174,7 +242,13 @@ def validate_electromagnetic_pic_spec(spec: ElectromagneticPICSpec) -> Validatio
         r.merge(validate_collision(col, all_names))
 
     _check_bc_lengths(spec, r)
+    domain_bc = spec.domain.field_bc
+    lo_bcs = spec.field_bc_lo if spec.field_bc_lo is not None else domain_bc
+    hi_bcs = spec.field_bc_hi if spec.field_bc_hi is not None else domain_bc
+    check_periodic_bc_symmetry(spec.domain.dim, lo_bcs, hi_bcs, r, code_prefix="em")
     _check_psatd_with_implicit(spec, r)
+    _check_implicit_tolerance_cold_plasma(spec, r)
+    _check_direct_deposition_periodic_bc(spec, r)
     _check_laser_resolution(spec, r)
     _check_plasma_physics(spec, r)
 

@@ -149,12 +149,125 @@ def test_em_pic_psatd_implicit_incompatible():
     assert any("psatd_implicit" in i.code for i in r.issues)
 
 
+# _TWO_SPECIES default: temperature_eV not set (=0), equal densities → cold neutral
+_COLD_NEUTRAL_IMPLICIT = dict(
+    implicit_enabled=True, implicit_const_dt=1e-12, implicit_theta=0.6,
+)
+
+
+def test_em_pic_implicit_tight_tolerance_cold_neutral_warns():
+    """Tight tolerance + cold quasi-neutral plasma → WARNING."""
+    spec = _spec(**_COLD_NEUTRAL_IMPLICIT, implicit_tolerance=1e-8)
+    r = validate_electromagnetic_pic_spec(spec)
+    codes = [i.code for i in r.issues]
+    assert "implicit.tolerance.tight_cold_plasma" in codes
+    severities = {i.code: i.severity for i in r.issues}
+    assert severities["implicit.tolerance.tight_cold_plasma"] == Severity.WARNING
+
+
+def test_em_pic_implicit_default_tolerance_ok():
+    """Default tolerance=1e-3 + cold neutral plasma → no tight-tolerance warning."""
+    spec = _spec(**_COLD_NEUTRAL_IMPLICIT, implicit_tolerance=1e-3)
+    r = validate_electromagnetic_pic_spec(spec)
+    assert not any("tight_cold_plasma" in i.code for i in r.issues)
+
+
+def test_em_pic_implicit_tight_tolerance_warm_no_warn():
+    """Tight tolerance is acceptable when species have thermal spread → no warning."""
+    warm_species = [
+        {"name": "electrons", "charge": -1, "mass_amu": 5.486e-4,
+         "density": 1e24, "ppc": 4, "temperature_eV": 100.0},
+        {"name": "protons", "charge": 1, "mass_amu": 1.00728,
+         "density": 1e24, "ppc": 4},
+    ]
+    spec = _spec(species=warm_species, **_COLD_NEUTRAL_IMPLICIT, implicit_tolerance=1e-8)
+    r = validate_electromagnetic_pic_spec(spec)
+    assert not any("tight_cold_plasma" in i.code for i in r.issues)
+
+
+def test_em_pic_implicit_tight_tolerance_non_neutral_no_warn():
+    """Tight tolerance is not flagged when plasma has significant net charge."""
+    ion_heavy = [
+        {"name": "electrons", "charge": -1, "mass_amu": 5.486e-4,
+         "density": 1e24, "ppc": 4},
+        {"name": "protons", "charge": 1, "mass_amu": 1.00728,
+         "density": 1.5e24, "ppc": 4},  # 50% excess ions → not neutral
+    ]
+    spec = _spec(species=ion_heavy, **_COLD_NEUTRAL_IMPLICIT, implicit_tolerance=1e-8)
+    r = validate_electromagnetic_pic_spec(spec)
+    assert not any("tight_cold_plasma" in i.code for i in r.issues)
+
+
 def test_em_pic_field_bc_lo_wrong_length():
     """field_bc_lo with wrong length for dim → ERROR."""
     spec = _spec(field_bc_lo=["periodic"])  # dim=2, so needs 2 entries
     r = validate_electromagnetic_pic_spec(spec)
     assert not r.ok
     assert any("field_bc_lo.len" in i.code for i in r.issues)
+
+
+def test_em_pic_periodic_mismatch_lo_periodic_hi_pml_error():
+    """periodic on lo, pml on hi for same axis → ERROR."""
+    spec = _spec(field_bc=["pml", "pml"],
+                 field_bc_lo=["periodic", "pml"])  # x: lo=periodic, hi=pml
+    r = validate_electromagnetic_pic_spec(spec)
+    assert not r.ok
+    codes = [i.code for i in r.issues]
+    assert "em.bc.periodic_mismatch" in codes
+
+
+def test_em_pic_periodic_mismatch_lo_pml_hi_periodic_error():
+    """pml on lo, periodic on hi for same axis → ERROR."""
+    spec = _spec(field_bc=["pml", "pml"],
+                 field_bc_hi=["periodic", "pml"])  # x: lo=pml, hi=periodic
+    r = validate_electromagnetic_pic_spec(spec)
+    assert not r.ok
+    assert any("periodic_mismatch" in i.code for i in r.issues)
+
+
+def test_em_pic_periodic_both_sides_ok():
+    """periodic on both lo and hi → no mismatch error."""
+    spec = _spec(field_bc=["pml", "pml"],
+                 field_bc_lo=["periodic", "pml"],
+                 field_bc_hi=["periodic", "pml"])
+    r = validate_electromagnetic_pic_spec(spec)
+    assert not any("periodic_mismatch" in i.code for i in r.issues)
+
+
+def test_em_pic_periodic_mismatch_direct_deposition_periodic_warns():
+    """direct deposition + periodic BC on any axis → WARNING."""
+    spec = _spec(current_deposition="direct",
+                 field_bc=["periodic", "pml"])  # x-axis is periodic
+    r = validate_electromagnetic_pic_spec(spec)
+    codes = [i.code for i in r.issues]
+    assert "em.direct_deposition.periodic_bc" in codes
+    severities = {i.code: i.severity for i in r.issues}
+    assert severities["em.direct_deposition.periodic_bc"] == Severity.WARNING
+
+
+def test_em_pic_direct_deposition_all_absorbing_no_warn():
+    """direct deposition with no periodic axes → no warning."""
+    spec = _spec(current_deposition="direct",
+                 field_bc=["pml", "pml"])
+    r = validate_electromagnetic_pic_spec(spec)
+    assert not any("direct_deposition" in i.code for i in r.issues)
+
+
+def test_em_pic_direct_deposition_asymmetric_periodic_warns():
+    """direct deposition + periodic on lo side only → WARNING."""
+    spec = _spec(current_deposition="direct",
+                 field_bc=["pml", "pml"],
+                 field_bc_lo=["periodic", "pml"])
+    r = validate_electromagnetic_pic_spec(spec)
+    assert any("direct_deposition" in i.code for i in r.issues)
+
+
+def test_em_pic_esirkepov_periodic_no_warn():
+    """esirkepov (default) with fully periodic BCs → no direct_deposition warning."""
+    spec = _spec(current_deposition="esirkepov",
+                 field_bc=["periodic", "periodic"])
+    r = validate_electromagnetic_pic_spec(spec)
+    assert not any("direct_deposition" in i.code for i in r.issues)
 
 
 # ---------------------------------------------------------------------------

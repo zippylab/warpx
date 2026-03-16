@@ -552,6 +552,19 @@ def validate_implicit_solver(imp: ImplicitSolverSpec) -> ValidationReport:
     if not (0.0 < imp.theta <= 1.0):
         r.add(Severity.ERROR, "implicit.theta",
               "theta must be in (0, 1]", theta=imp.theta)
+    elif imp.theta < 0.5:
+        r.add(Severity.ERROR, "implicit.theta.unstable",
+              f"theta={imp.theta:.4g} < 0.5 makes the theta-implicit scheme "
+              "unconditionally unstable regardless of timestep; "
+              "use theta >= 0.5 (0.5 = Crank-Nicolson, 1.0 = fully implicit)",
+              theta=imp.theta)
+    elif imp.theta == 0.5:
+        r.add(Severity.WARNING, "implicit.theta.no_damping",
+              "theta=0.5 (Crank-Nicolson) conserves energy but provides no "
+              "numerical damping of spurious high-k modes; use theta slightly "
+              "above 0.5 (e.g. 0.55) if unphysical high-frequency mode growth "
+              "is observed",
+              theta=imp.theta)
     if imp.solver_type not in ("picard", "newton"):
         r.add(Severity.ERROR, "implicit.solver_type",
               "solver_type must be 'picard' or 'newton'", solver_type=imp.solver_type)
@@ -898,6 +911,15 @@ def validate_es_solver(sol: ESSolverSpec) -> ValidationReport:
     if sol.poisson_precision <= 0:
         r.add(Severity.ERROR, "es.poisson_precision",
               "poisson_precision must be > 0", poisson_precision=sol.poisson_precision)
+    elif sol.poisson_precision < 1e-12:
+        r.add(Severity.WARNING, "es.poisson_precision.too_tight",
+              f"poisson_precision={sol.poisson_precision:.2g} is tighter than "
+              "~1e-12.  MLMG residuals saturate near machine epsilon "
+              "(~2e-16 × (4/dx²) × V_scale); requesting finer convergence "
+              "causes the solver to diverge or run to max iterations without "
+              "making meaningful progress.  Values of 1e-9 to 1e-11 are "
+              "sufficient for double-precision PIC.",
+              poisson_precision=sol.poisson_precision)
 
     _VALID_MODE = {"labframe", "relativistic"}
     if sol.electrostatic_mode not in _VALID_MODE:
@@ -1186,6 +1208,35 @@ def check_fft_requires_periodic(
             f"Use poisson_solver='multigrid' for non-periodic boundaries.",
             non_periodic_bcs=non_periodic,
         )
+
+
+def check_periodic_bc_symmetry(
+    dim: int,
+    lo_bcs: List[str],
+    hi_bcs: List[str],
+    r: ValidationReport,
+    code_prefix: str = "em",
+) -> None:
+    """ERROR if one side of an axis is periodic while the other is not.
+
+    Periodic BCs require both sides of an axis to be periodic — the domain is
+    topologically a torus in that dimension.  Mixing ``"periodic"`` on lo with
+    a non-periodic BC on hi (or vice versa) is undefined behaviour in WarpX.
+
+    *lo_bcs* and *hi_bcs* must already be fully resolved (i.e. asymmetric
+    overrides applied, length == dim).
+    """
+    axis_labels = ["x", "y", "z"][:dim]
+    for axis, (lo, hi) in enumerate(zip(lo_bcs, hi_bcs)):
+        if (lo == "periodic") != (hi == "periodic"):
+            r.add(
+                Severity.ERROR, f"{code_prefix}.bc.periodic_mismatch",
+                f"Axis {axis_labels[axis]}: lo BC is {lo!r} but hi BC is {hi!r}. "
+                "Periodic BCs require the same type on both sides of an axis "
+                "(the domain must be a torus in that dimension); mixing periodic "
+                "with a non-periodic BC is undefined behaviour in WarpX.",
+                axis=axis_labels[axis], lo=lo, hi=hi,
+            )
 
 
 def suggest_cells(

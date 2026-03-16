@@ -44,6 +44,37 @@ def test_es_pic_bad_poisson_solver():
     assert any(i.code == "es.poisson_solver" for i in r.issues)
 
 
+def test_es_pic_poisson_precision_too_tight_warns():
+    """poisson_precision < 1e-12 → WARNING (approaches machine-epsilon noise floor)."""
+    spec = _spec(poisson_precision=1e-15)
+    r = validate_electrostatic_pic_spec(spec)
+    codes = [i.code for i in r.issues]
+    assert "es.poisson_precision.too_tight" in codes
+    severities = {i.code: i.severity for i in r.issues}
+    assert severities["es.poisson_precision.too_tight"] == Severity.WARNING
+
+
+def test_es_pic_poisson_precision_boundary_warns():
+    """poisson_precision exactly at boundary (1e-13) → WARNING."""
+    spec = _spec(poisson_precision=1e-13)
+    r = validate_electrostatic_pic_spec(spec)
+    assert any(i.code == "es.poisson_precision.too_tight" for i in r.issues)
+
+
+def test_es_pic_poisson_precision_default_ok():
+    """Default poisson_precision=1e-11 → no too_tight warning."""
+    spec = _spec(poisson_precision=1e-11)
+    r = validate_electrostatic_pic_spec(spec)
+    assert not any(i.code == "es.poisson_precision.too_tight" for i in r.issues)
+
+
+def test_es_pic_poisson_precision_exactly_1e12_ok():
+    """poisson_precision=1e-12 is at the boundary and should not warn."""
+    spec = _spec(poisson_precision=1e-12)
+    r = validate_electrostatic_pic_spec(spec)
+    assert not any(i.code == "es.poisson_precision.too_tight" for i in r.issues)
+
+
 def test_es_pic_higuera_pusher_error():
     """higuera particle_pusher in ES-PIC → ERROR (it's for implicit EM only)."""
     spec = _spec(particle_pusher="higuera")
@@ -147,6 +178,30 @@ def test_es_pic_field_bc_lo_wrong_length():
     r = validate_electrostatic_pic_spec(spec)
     assert not r.ok
     assert any("field_bc_lo.len" in i.code for i in r.issues)
+
+
+def test_es_pic_periodic_mismatch_error():
+    """periodic on lo, pec on hi for same axis → ERROR."""
+    spec = _spec(
+        dim=1, number_of_cells=[100],
+        lower_bound=[0.0], upper_bound=[1e-3],
+        field_bc=["pec"],
+        field_bc_lo=["periodic"],  # lo=periodic, hi (from field_bc)=pec → mismatch
+    )
+    r = validate_electrostatic_pic_spec(spec)
+    assert not r.ok
+    assert any("periodic_mismatch" in i.code for i in r.issues)
+
+
+def test_es_pic_periodic_both_sides_ok():
+    """periodic on lo and hi → no mismatch."""
+    spec = _spec(
+        dim=1, number_of_cells=[100],
+        lower_bound=[0.0], upper_bound=[1e-3],
+        field_bc=["periodic"],
+    )
+    r = validate_electrostatic_pic_spec(spec)
+    assert not any("periodic_mismatch" in i.code for i in r.issues)
 
 
 # ---------------------------------------------------------------------------
