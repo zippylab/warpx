@@ -1241,11 +1241,11 @@ def _emit_amr_block(
         f"amr.max_level = {amr.max_level}",
         f"amr.n_cell = {n_cell_str}",
         f"amr.blocking_factor = {bf}",
+        f"amr.max_grid_size = {amr.max_grid_size}",
     ]
 
     if amr.max_level > 0:
         ref_ratio_str = " ".join(str(amr.ref_ratio) for _ in range(amr.max_level))
-        lines.append(f"amr.max_grid_size = {amr.max_grid_size}")
         lines.append(f"amr.ref_ratio = {ref_ratio_str}")
         if amr.tag_by == "box" and amr.fine_tag_lo and amr.fine_tag_hi:
             lo_str = " ".join(f"{x:.17g}" for x in amr.fine_tag_lo)
@@ -1444,3 +1444,41 @@ def _emit_picmi_diag_lines(
         parts.append(f"sim.add_diagnostic({rd_var})")
 
     return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Particle injection helpers
+# ---------------------------------------------------------------------------
+
+def factorize_ppc(ppc: int, dim: int) -> List[int]:
+    """Factor *ppc* into *dim* positive integers whose product equals *ppc*.
+
+    The algorithm greedily picks the nearest divisor of the remaining product
+    to its dim-th root, keeping factors as equal as possible.  This gives
+    a valid ``num_particles_per_cell_each_dim`` array required by WarpX when
+    using the ``NUniformPerCell`` injection style.
+
+    Examples::
+
+        factorize_ppc(4, 3) -> [2, 1, 2]   # or similar permutation
+        factorize_ppc(8, 3) -> [2, 2, 2]
+        factorize_ppc(4, 2) -> [2, 2]
+        factorize_ppc(7, 3) -> [1, 1, 7]
+    """
+    result: List[int] = []
+    remaining = max(1, ppc)
+    for i in range(dim, 0, -1):
+        target = round(remaining ** (1.0 / i))
+        k = max(1, target)
+        # Find closest divisor of remaining to target
+        for delta in range(remaining + 1):
+            for candidate in (k - delta, k + delta):
+                if candidate >= 1 and remaining % candidate == 0:
+                    k = candidate
+                    break
+            else:
+                continue
+            break
+        result.append(k)
+        remaining //= k
+    return result

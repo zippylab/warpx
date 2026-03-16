@@ -42,6 +42,7 @@ from .blocks import (
     _emit_checkpoint_block,
     _emit_diag_block,
     _emit_picmi_diag_lines,
+    factorize_ppc,
     suggest_cells,
 )
 
@@ -248,7 +249,7 @@ def _particle_bc_from_field_bc(bc: str) -> str:
     return _MAP.get(bc, bc)
 
 
-def _emit_species_block(sp: SpeciesDefSpec) -> str:
+def _emit_species_block(sp: SpeciesDefSpec, dim: int = 1) -> str:
     """Emit the ParmParse block for a single species."""
     lines: List[str] = []
     n = sp.name
@@ -280,8 +281,9 @@ def _emit_species_block(sp: SpeciesDefSpec) -> str:
 
     else:  # NRandomPerCell / NUniformPerCell
         lines.append(f"{n}.injection_style = {style}")
-        if style == "NUniformPerCell" and sp.ppc_each_dim is not None:
-            dims_str = " ".join(str(x) for x in sp.ppc_each_dim)
+        if style == "NUniformPerCell":
+            factors = sp.ppc_each_dim if sp.ppc_each_dim is not None else factorize_ppc(sp.ppc, dim)
+            dims_str = " ".join(str(x) for x in factors)
             lines.append(f"{n}.num_particles_per_cell_each_dim = {dims_str}")
         else:
             lines.append(f"{n}.num_particles_per_cell = {sp.ppc}")
@@ -431,7 +433,7 @@ warpx.implicit_solver.theta = {imp.theta:.17g}
     # ------------------------------------------------------------------
     species_names = " ".join(sp.name for sp in spec.species)
     species_blocks = "\n\n".join(
-        f"# --- Species: {sp.name} ---\n{_emit_species_block(sp)}"
+        f"# --- Species: {sp.name} ---\n{_emit_species_block(sp, dim=spec.domain.dim)}"
         for sp in spec.species
     )
 

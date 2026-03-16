@@ -44,6 +44,7 @@ from .blocks import (
     _emit_checkpoint_block,
     _emit_diag_block,
     _emit_picmi_diag_lines,
+    factorize_ppc,
     suggest_cells,
 )
 
@@ -115,6 +116,16 @@ class ElectrostaticPICSpec:
     # Asymmetric BCs: None = use domain.field_bc for both lo and hi
     field_bc_lo: Optional[List[str]] = None
     field_bc_hi: Optional[List[str]] = None
+    # Particle BCs: None = auto-derive from field_bc (pec→absorbing for ES sheath)
+    # Set explicitly to override: e.g. ["absorbing","absorbing","absorbing"]
+    particle_bc_lo: Optional[List[str]] = None
+    particle_bc_hi: Optional[List[str]] = None
+    # Wall potentials for PEC (Dirichlet) boundaries, one value per axis.
+    # None = do not emit; WarpX defaults to 0 V for unspecified PEC walls.
+    # Example 1D sheath:  boundary_potential_lo=[0.0], boundary_potential_hi=[0.0]
+    # Example 3D box:     boundary_potential_lo=[1.0,1.0,1.0], boundary_potential_hi=[1.0,1.0,1.0]
+    boundary_potential_lo: Optional[List[Optional[float]]] = None
+    boundary_potential_hi: Optional[List[Optional[float]]] = None
     # Optional analytic external B-field (for magnetised ES-PIC)
     ext_bfield: Optional[ExtBFieldSpec] = None
     # Optional embedded boundary
@@ -163,6 +174,10 @@ class ElectrostaticPICSpec:
             diag=diag,
             field_bc_lo=d.get("field_bc_lo"),
             field_bc_hi=d.get("field_bc_hi"),
+            particle_bc_lo=d.get("particle_bc_lo"),
+            particle_bc_hi=d.get("particle_bc_hi"),
+            boundary_potential_lo=d.get("boundary_potential_lo"),
+            boundary_potential_hi=d.get("boundary_potential_hi"),
             ext_bfield=ext_bfield,
             eb=eb,
             amr=amr,
@@ -195,14 +210,70 @@ def _mass_str(mass_amu: float) -> str:
     return f"{mass_amu * _AMU:.17g}"
 
 
+# Axis labels per dimension (WarpX naming convention)
+_AXIS_LABELS = {1: ["z"], 2: ["x", "z"], 3: ["x", "y", "z"]}
+
+# Machine epsilon for double precision
+_EPS_MACH = 2.2e-16
+
+
+def _emit_potential_lines(
+    potentials: Optional[List[Optional[float]]],
+    side: str,
+    dim: int,
+) -> str:
+    """Return boundary.potential_{side}_{axis} lines for non-None values."""
+    if not potentials:
+        return ""
+    axes = _AXIS_LABELS.get(dim, ["x", "y", "z"])
+    lines = []
+    for axis, val in zip(axes, potentials):
+        if val is not None:
+            lines.append(f"boundary.potential_{side}_{axis} = {val:.17g}")
+    return "\n".join(lines)
+
+
+def _compute_abs_tol(spec: "ElectrostaticPICSpec") -> float:
+    """Compute a physics-grounded MLMG absolute tolerance from domain and potentials.
+
+    The MLMG residual has units V/m².  Its noise floor scales as:
+        C × ε_mach × (4 / dx_min²) × V_scale
+    where C ≈ 1e4 accounts for accumulated multigrid rounding errors.
+
+    V_scale is the maximum wall potential magnitude (defaults to 1 V if no
+    potentials are specified).  The formula ensures abs_tol is always above
+    the machine-precision noise floor, preventing spurious MLMG divergence
+    when the relative residual reaches machine epsilon in a quasi-neutral plasma.
+    """
+    dx_min = min(
+        (hi - lo) / nc
+        for lo, hi, nc in zip(
+            spec.domain.lower_bound,
+            spec.domain.upper_bound,
+            spec.domain.number_of_cells,
+        )
+    )
+    v_pots: List[float] = []
+    for pots in (spec.boundary_potential_lo, spec.boundary_potential_hi):
+        if pots:
+            v_pots.extend(abs(v) for v in pots if v is not None)
+    v_scale = max(max(v_pots, default=0.0), 1.0)
+    return 1e4 * _EPS_MACH * 4.0 / dx_min**2 * v_scale
+
+
 def _particle_bc_from_field_bc(bc: str) -> str:
-    """Map a field BC keyword to the corresponding particle BC keyword."""
+    """Map a field BC keyword to the corresponding particle BC keyword.
+
+    For ES-PIC, ``pec`` walls act as conductors that *absorb* particles
+    (unlike EM-PIC where pec implies a mirror/reflecting condition).
+    """
     _MAP = {
         "pml": "absorbing",
         "open": "absorbing",
         "absorbing": "absorbing",
         "periodic": "periodic",
-        "pec": "reflecting",
+        "pec": "absorbing",      # ES-PIC: conducting wall absorbs particles
+        "neumann": "absorbing",  # insulating wall also absorbs particles
         "pmc": "reflecting",
         "none": "none",
         "damped": "absorbing",
@@ -210,7 +281,7 @@ def _particle_bc_from_field_bc(bc: str) -> str:
     return _MAP.get(bc, bc)
 
 
-def _emit_species_block(sp: SpeciesDefSpec) -> str:
+def _emit_species_block(sp: SpeciesDefSpec, dim: int = 1) -> str:
     """Emit the ParmParse block for a single species."""
     lines: List[str] = []
     n = sp.name
@@ -242,8 +313,9 @@ def _emit_species_block(sp: SpeciesDefSpec) -> str:
 
     else:  # NRandomPerCell / NUniformPerCell
         lines.append(f"{n}.injection_style = {style}")
-        if style == "NUniformPerCell" and sp.ppc_each_dim is not None:
-            dims_str = " ".join(str(x) for x in sp.ppc_each_dim)
+        if style == "NUniformPerCell":
+            factors = sp.ppc_each_dim if sp.ppc_each_dim is not None else factorize_ppc(sp.ppc, dim)
+            dims_str = " ".join(str(x) for x in factors)
             lines.append(f"{n}.num_particles_per_cell_each_dim = {dims_str}")
         else:
             lines.append(f"{n}.num_particles_per_cell = {sp.ppc}")
@@ -362,8 +434,12 @@ def generate_inputs_electrostatic_pic(spec: ElectrostaticPICSpec) -> str:
     field_hi = _bc_list(spec.field_bc_hi, spec.domain.field_bc)
     bc_field_lo_str = " ".join(field_lo)
     bc_field_hi_str = " ".join(field_hi)
-    bc_part_lo_str  = " ".join(_particle_bc_from_field_bc(b) for b in field_lo)
-    bc_part_hi_str  = " ".join(_particle_bc_from_field_bc(b) for b in field_hi)
+    part_lo = spec.particle_bc_lo if spec.particle_bc_lo is not None \
+        else [_particle_bc_from_field_bc(b) for b in field_lo]
+    part_hi = spec.particle_bc_hi if spec.particle_bc_hi is not None \
+        else [_particle_bc_from_field_bc(b) for b in field_hi]
+    bc_part_lo_str  = " ".join(part_lo)
+    bc_part_hi_str  = " ".join(part_hi)
 
     # ------------------------------------------------------------------
     # Solver / numerics
@@ -373,21 +449,33 @@ def generate_inputs_electrostatic_pic(spec: ElectrostaticPICSpec) -> str:
     if isinstance(pshape, str):
         pshape = _PSHAPE_MAP.get(pshape.lower(), 1)
 
-    # MLMG precision line only for multigrid solver
+    # MLMG precision lines only for multigrid solver
     if spec.solver.poisson_solver == "multigrid":
+        abs_tol = _compute_abs_tol(spec)
         precision_line = (
             f"warpx.self_fields_required_precision = {spec.solver.poisson_precision:.17g}\n"
+            f"warpx.self_fields_absolute_tolerance = {abs_tol:.6g}\n"
             f"warpx.self_fields_max_iters = 200"
         )
     else:
         precision_line = ""
+
+    # Wall potential lines (only emitted for axes where a value is given)
+    pot_lo_lines = _emit_potential_lines(
+        spec.boundary_potential_lo, "lo", spec.domain.dim
+    )
+    pot_hi_lines = _emit_potential_lines(
+        spec.boundary_potential_hi, "hi", spec.domain.dim
+    )
+    _pot_lines = "\n".join(ln for ln in (pot_lo_lines, pot_hi_lines) if ln)
+    potential_block = ("\n" + _pot_lines) if _pot_lines else ""
 
     # ------------------------------------------------------------------
     # Species
     # ------------------------------------------------------------------
     species_names = " ".join(sp.name for sp in spec.species)
     species_blocks = "\n\n".join(
-        f"# --- Species: {sp.name} ---\n{_emit_species_block(sp)}"
+        f"# --- Species: {sp.name} ---\n{_emit_species_block(sp, dim=spec.domain.dim)}"
         for sp in spec.species
     )
 
@@ -469,6 +557,10 @@ eb2.stl_file = {eb.stl_file}
         "diag": asdict(spec.diag),
         "field_bc_lo": spec.field_bc_lo,
         "field_bc_hi": spec.field_bc_hi,
+        "particle_bc_lo": spec.particle_bc_lo,
+        "particle_bc_hi": spec.particle_bc_hi,
+        "boundary_potential_lo": spec.boundary_potential_lo,
+        "boundary_potential_hi": spec.boundary_potential_hi,
     }
 
     precision_str = f"\n{precision_line}" if precision_line else ""
@@ -487,7 +579,7 @@ max_step = {spec.solver.max_steps}
 boundary.field_lo = {bc_field_lo_str}
 boundary.field_hi = {bc_field_hi_str}
 boundary.particle_lo = {bc_part_lo_str}
-boundary.particle_hi = {bc_part_hi_str}
+boundary.particle_hi = {bc_part_hi_str}{potential_block}
 
 # --- Electrostatic solver (Poisson) ------------------------------------------
 warpx.do_electrostatic = {spec.solver.electrostatic_mode}
