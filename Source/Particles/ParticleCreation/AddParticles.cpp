@@ -815,6 +815,20 @@ PhysicalParticleContainer::AddPlasma (PlasmaInjector& plasma_injector, int lev, 
         plasma_injector.prepare(part_realbox, moving_dir, moving_sign, get_zlab);
     }
 
+    // DEBUG: print injection region and domain
+    {
+        int myrank = amrex::ParallelDescriptor::MyProc();
+        const auto& probdom = geom.ProbDomain();
+        amrex::AllPrint() << "[AddPlasma DEBUG rank=" << myrank
+            << "] part_realbox lo=(" << part_realbox.lo(0) << "," << part_realbox.lo(1) << "," << part_realbox.lo(2)
+            << ") hi=(" << part_realbox.hi(0) << "," << part_realbox.hi(1) << "," << part_realbox.hi(2)
+            << ") initial=" << initial_injection
+            << " num_ppc=" << num_ppc
+            << " density_min=" << density_min
+            << " probdom lo=(" << probdom.lo(0) << "," << probdom.lo(1) << "," << probdom.lo(2)
+            << ") hi=(" << probdom.hi(0) << "," << probdom.hi(1) << "," << probdom.hi(2) << ")\n";
+    }
+
     MFItInfo info;
     if (do_tiling && amrex::Gpu::notInLaunchRegion()) {
         info.EnableTiling(tile_size);
@@ -840,6 +854,14 @@ PhysicalParticleContainer::AddPlasma (PlasmaInjector& plasma_injector, int lev, 
         amrex::Box overlap_box;
         amrex::IntVect shifted;
         const bool no_overlap = find_overlap(tile_realbox, part_realbox, dx, problo, overlap_realbox, overlap_box, shifted);
+        // DEBUG: print overlap result for first 4 tiles
+        if (mfi.LocalIndex() < 4) {
+            amrex::AllPrint() << "[AddPlasma DEBUG rank=" << amrex::ParallelDescriptor::MyProc()
+                << " tile=" << mfi.LocalIndex() << "] no_overlap=" << no_overlap
+                << " tile_lo=(" << tile_realbox.lo(0) << "," << tile_realbox.lo(1) << "," << tile_realbox.lo(2)
+                << ") tile_hi=(" << tile_realbox.hi(0) << "," << tile_realbox.hi(1) << "," << tile_realbox.hi(2)
+                << ") overlap_box=" << overlap_box << "\n";
+        }
         if (no_overlap) {
             continue; // Go to the next tile
         }
@@ -900,9 +922,38 @@ PhysicalParticleContainer::AddPlasma (PlasmaInjector& plasma_injector, int lev, 
             amrex::ignore_unused(j,k);
         });
 
+        // Save counts before ExclusiveSum — SYCL ExclusiveSum may overwrite the input
+        // array in-place as a side-effect of the prefix-sum algorithm, which would
+        // set pcounts[index]=0 in the fill kernel and inject zero particles.
+        amrex::Gpu::DeviceVector<amrex::Long> saved_counts(counts);
+        pcounts = saved_counts.data();  // fill kernel reads from this copy
+
         // Max number of new particles. All of them are created,
         // and invalid ones are then discarded
         const amrex::Long max_new_particles = amrex::Scan::ExclusiveSum(counts.size(), counts.data(), offset.data());
+        // DEBUG: print max_new_particles + check if ExclusiveSum modified counts in-place
+        if (mfi.LocalIndex() < 2 && max_new_particles > 0) {
+            amrex::AllPrint() << "[AddPlasma DEBUG rank=" << amrex::ParallelDescriptor::MyProc()
+                << " tile=" << mfi.LocalIndex() << "] max_new_particles=" << max_new_particles
+                << " overlap_box.numPts()=" << overlap_box.numPts() << "\n";
+            // Read counts[0], counts[1], offset[0] from GPU to check ExclusiveSum behaviour
+            amrex::Gpu::PinnedVector<amrex::Long> chk_v(3, -1L);
+            auto* pchk = chk_v.data();
+            auto* pc0  = counts.data();
+            auto* po0  = offset.data();
+            amrex::ParallelFor(1, [=] AMREX_GPU_DEVICE (int) noexcept {
+                pchk[0] = pc0[0];   // should be 8 (original count) if NOT in-place
+                pchk[1] = pc0[1];   // should be 8 if NOT in-place; 8 if in-place (excl sum of first two 8s is 0,8)
+                pchk[2] = po0[0];   // should be 0 (first prefix sum value)
+            });
+            amrex::Gpu::synchronize();
+            amrex::AllPrint() << "[ExclSum DEBUG rank=" << amrex::ParallelDescriptor::MyProc()
+                << " tile=" << mfi.LocalIndex()
+                << "] counts[0]=" << chk_v[0]
+                << " counts[1]=" << chk_v[1]
+                << " offset[0]=" << chk_v[2]
+                << " (counts[0] expected=8 if not in-place, 0 if in-place)\n";
+        }
 
         // Update NextID to include particles created in this function
         amrex::Long pid;
@@ -961,11 +1012,11 @@ PhysicalParticleContainer::AddPlasma (PlasmaInjector& plasma_injector, int lev, 
         // The invalid ones are given negative ID and are deleted during the
         // next redistribute.
         auto *const poffset = offset.data();
+
 #if defined(WARPX_DIM_RZ) || defined(WARPX_DIM_RCYLINDER)
         const bool rz_random_theta = m_rz_random_theta;
 #endif
-        amrex::ParallelForRNG(overlap_box,
-        [=] AMREX_GPU_DEVICE (int i, int j, int k, amrex::RandomEngine const& engine) noexcept
+        auto fill_kernel = [=] AMREX_GPU_DEVICE (int i, int j, int k, amrex::RandomEngine const& engine) noexcept
         {
             const amrex::IntVect iv = amrex::IntVect(AMREX_D_DECL(i, j, k));
             amrex::ignore_unused(j,k);
@@ -1208,7 +1259,34 @@ PhysicalParticleContainer::AddPlasma (PlasmaInjector& plasma_injector, int lev, 
                 pa[PIdx::z][ip] = pos.z;
 #endif
             }
-        });
+        };
+#ifdef AMREX_USE_SYCL
+        // Workaround for a DPC++ compiler bug on Intel PVC: when fill_kernel is
+        // captured by value in the ParallelForRNG outer SYCL kernel lambda, some
+        // device-pointer fields inside fill_kernel are silently zeroed at kernel
+        // launch time, causing a GPU segfault (VA 0x0) on the first pointer
+        // dereference (e.g. inj_pos->getPositionUnitBox).  The root cause is a
+        // DPC++ code-generation issue with nested lambda captures that contain
+        // device-USM pointer fields alongside a SYCL accessor (engine_acc).
+        // Fix: copy fill_kernel to device-arena memory via DMA (bypassing the
+        // SYCL argument-passing path), then pass only an 8-byte device pointer
+        // to ParallelForRNG.  Confirmed to fix the crash on Sunspot/Aurora.
+        {
+            using FKType = std::remove_reference_t<decltype(fill_kernel)>;
+            auto* d_fk = static_cast<FKType*>(amrex::The_Arena()->alloc(sizeof(FKType)));
+            amrex::Gpu::htod_memcpy_async(d_fk, &fill_kernel, sizeof(FKType));
+            amrex::Gpu::streamSynchronize();
+            const FKType* d_fk_ptr = d_fk;
+            amrex::ParallelForRNG(overlap_box,
+                [d_fk_ptr] AMREX_GPU_DEVICE (int i, int j, int k, amrex::RandomEngine const& engine) noexcept
+                {
+                    (*d_fk_ptr)(i, j, k, engine);
+                });
+            amrex::The_Arena()->free(d_fk);
+        }
+#else
+        amrex::ParallelForRNG(overlap_box, fill_kernel);
+#endif
 
         amrex::Gpu::synchronize();
 

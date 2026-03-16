@@ -1,0 +1,32 @@
+#!/bin/bash -l
+#PBS -A Catalyst
+#PBS -N gpu_rng_aot
+#PBS -l select=1
+#PBS -l walltime=00:10:00
+#PBS -l filesystems=home
+#PBS -l place=scatter
+#PBS -q workq
+#PBS -k doe
+
+EXE="/home/zippy/src/warpx/Examples/Tests/gpu_rng_test/gpu_rng_test_aot"
+LOG_DIR="/home/zippy/src/warpx/Examples/Tests/gpu_rng_test"
+
+exec > "${LOG_DIR}/test_aot_stdout.log" 2> "${LOG_DIR}/test_aot_stderr.log"
+
+echo "Jobid: ${PBS_JOBID:-}"
+echo "Host: $(hostname)"
+echo "EXE: ${EXE}"
+echo ""
+
+module reset
+source $HOME/aurora_warpx.profile
+export ZE_FLAT_DEVICE_HIERARCHY="COMPOSITE"
+
+echo "=== Run: 1 MPI rank, 1 GPU tile ==="
+mpiexec --np 1 -ppn 1 \
+    --cpu-bind=list:1-8 \
+    --gpu-bind=list:0.0 \
+    -genvall "${EXE}" amrex.verbose=0
+echo ""
+
+echo "=== Done ==="

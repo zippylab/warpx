@@ -1,0 +1,44 @@
+#!/bin/bash -l
+#PBS -A Catalyst
+#PBS -N gpu_rng_sizeof
+#PBS -l select=1
+#PBS -l walltime=00:20:00
+#PBS -l filesystems=home
+#PBS -l place=scatter
+#PBS -q workq
+#PBS -k doe
+
+# Rebuild gpu_rng_test_aot with updated main.cpp (adds sizeof(sycl_rng_acc) diagnostic)
+# then run to measure how large the MKL engine_accessor is on the host.
+# This quantifies the engine_acc contribution to the ParallelForRNG outer kernel
+# argument block and confirms or refutes the 2048B limit theory.
+
+set -euo pipefail
+
+TESTDIR="/home/zippy/src/warpx/Examples/Tests/gpu_rng_test"
+LOG="${TESTDIR}/test_sizeof_stdout.log"
+ERR="${TESTDIR}/test_sizeof_stderr.log"
+
+exec > "${LOG}" 2> "${ERR}"
+
+echo "Jobid: ${PBS_JOBID:-}"
+echo "Host: $(hostname)"
+echo ""
+
+source $HOME/sunspot_warpx_debugging.profile
+export ZE_FLAT_DEVICE_HIERARCHY="COMPOSITE"
+
+echo "=== Building gpu_rng_test_aot (with sizeof diagnostic) ==="
+echo "Build start: $(date)"
+cd "${TESTDIR}"
+bash build_aot.sh 2>&1
+echo "Build done: $(date)"
+echo ""
+
+echo "=== Run: 1 MPI rank, 1 GPU tile ==="
+mpiexec --np 1 -ppn 1 \
+    --cpu-bind=list:1-8 \
+    --gpu-bind=list:0.0 \
+    -genvall "${TESTDIR}/gpu_rng_test_aot" amrex.verbose=0
+echo ""
+echo "=== Done ==="
