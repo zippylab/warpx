@@ -470,8 +470,9 @@ def validate_ext_bfield(bf: ExtBFieldSpec) -> ValidationReport:
 
     missing = [ax for ax, e in zip(("Bx", "By", "Bz"), exprs) if not e.strip()]
     if missing:
-        r.add(Severity.ERROR, "extbfield.incomplete",
-              f"All three B expressions must be set when any one is set; missing: {missing}",
+        r.add(Severity.WARNING, "extbfield.incomplete",
+              f"Missing {missing} expression(s) — will default to 0.0.  "
+              f"Set explicitly if a non-zero component is intended.",
               missing=missing)
     return r
 

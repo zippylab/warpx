@@ -16,6 +16,7 @@ from .blocks import (
     validate_domain,
     validate_eb,
     validate_em_solver,
+    validate_ext_bfield,
     validate_implicit_solver,
     validate_laser,
     validate_species_def,
@@ -59,7 +60,10 @@ def _check_plasma_physics(spec: ElectromagneticPICSpec, r: ValidationReport) -> 
 
     electron_specs = [
         sp for sp in spec.species
-        if sp.charge == -1.0 and sp.injection_style != "none" and sp.density > 0
+        if sp.charge == -1.0
+        and sp.injection_style != "none"
+        and isinstance(sp.density, (int, float))
+        and sp.density > 0
     ]
     if not electron_specs:
         return
@@ -119,7 +123,9 @@ def _check_implicit_tolerance_cold_plasma(spec: ElectromagneticPICSpec, r: Valid
         return
 
     active = [sp for sp in spec.species
-              if sp.injection_style != "none" and sp.density > 0]
+              if sp.injection_style != "none"
+              and isinstance(sp.density, (int, float))
+              and sp.density > 0]
     if not active:
         return
     if not all(sp.temperature_eV == 0.0 for sp in active):
@@ -231,6 +237,9 @@ def validate_electromagnetic_pic_spec(spec: ElectromagneticPICSpec) -> Validatio
 
     if spec.laser is not None:
         r.merge(validate_laser(spec.laser))
+
+    if spec.ext_bfield is not None:
+        r.merge(validate_ext_bfield(spec.ext_bfield))
 
     # Build name set for cross-reference checks
     all_names: set = {sp.name for sp in spec.species}

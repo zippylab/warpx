@@ -17,6 +17,7 @@ from .blocks import (
     validate_domain,
     validate_eb,
     validate_es_solver,
+    validate_ext_bfield,
     validate_species_def,
 )
 from .electrostatic_pic import ElectrostaticPICSpec
@@ -97,12 +98,14 @@ def _check_pec_potentials(spec: ElectrostaticPICSpec, r: ValidationReport) -> No
         return
 
     # Check quasi-neutrality of species
-    densities = [sp.density for sp in spec.species if sp.density > 0]
+    densities = [sp.density for sp in spec.species
+                  if isinstance(sp.density, (int, float)) and sp.density > 0]
     if not densities:
         return
     max_density = max(densities)
     net_charge_density = sum(
-        sp.density * sp.charge for sp in spec.species if sp.density > 0
+        sp.density * sp.charge for sp in spec.species
+        if isinstance(sp.density, (int, float)) and sp.density > 0
     )
     quasi_neutral = abs(net_charge_density) / max_density < 0.01
 
@@ -145,6 +148,9 @@ def validate_electrostatic_pic_spec(spec: ElectrostaticPICSpec) -> ValidationRep
 
     if spec.eb is not None:
         r.merge(validate_eb(spec.eb))
+
+    if spec.ext_bfield is not None:
+        r.merge(validate_ext_bfield(spec.ext_bfield))
 
     # Build name set for cross-reference checks
     all_names: set = {sp.name for sp in spec.species}
@@ -200,7 +206,9 @@ def validate_electrostatic_pic_spec(spec: ElectrostaticPICSpec) -> ValidationRep
     # Debye resolution and plasma-frequency stability checks (electron species only)
     electron_specs = [
         sp for sp in spec.species
-        if sp.charge == -1.0 and sp.injection_style != "none"
+        if sp.charge == -1.0
+        and sp.injection_style != "none"
+        and isinstance(sp.density, (int, float))
     ]
     if electron_specs:
         dx_max = max(

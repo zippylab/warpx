@@ -166,7 +166,15 @@ class ElectromagneticPICSpec:
         solver = EMSolverSpec(**{k: d[k] for k in _EM_SOLVER_KEYS if k in d})
         diag = DiagSpec.from_dict(d)
 
-        species = [SpeciesDefSpec(**e) for e in d.get("species", [])]
+        species_raw = d.get("species", [])
+        # If the user passes density as a string (parser expression),
+        # convert to profile="parse_density_function" + density_function=<expr>.
+        for sp_d in species_raw:
+            if isinstance(sp_d.get("density"), str):
+                sp_d.setdefault("profile", "parse_density_function")
+                sp_d.setdefault("density_function", sp_d.pop("density"))
+                sp_d.setdefault("density", 1.0)  # placeholder, not used
+        species = [SpeciesDefSpec(**e) for e in species_raw]
         collisions = [CollisionSpec(**e) for e in d.get("collisions", [])]
 
         imp_kw: dict = {}
@@ -281,7 +289,7 @@ def _emit_species_block(sp: SpeciesDefSpec, dim: int = 1) -> str:
 
     else:  # NRandomPerCell / NUniformPerCell
         lines.append(f"{n}.injection_style = {style}")
-        if style == "NUniformPerCell":
+        if style.lower() == "nuniformpercell":
             factors = sp.ppc_each_dim if sp.ppc_each_dim is not None else factorize_ppc(sp.ppc, dim)
             dims_str = " ".join(str(x) for x in factors)
             lines.append(f"{n}.num_particles_per_cell_each_dim = {dims_str}")
@@ -504,14 +512,17 @@ warpx.moving_window_v = 1.0  # in units of c
     ext_bfield_section = ""
     if spec.ext_bfield is not None:
         bf = spec.ext_bfield
-        if bf.Bx_expression.strip():
+        if any(e.strip() for e in (bf.Bx_expression, bf.By_expression, bf.Bz_expression)):
+            bx = bf.Bx_expression.strip() or "0.0"
+            by = bf.By_expression.strip() or "0.0"
+            bz = bf.Bz_expression.strip() or "0.0"
             ext_bfield_section = f"""\
 
 # --- Analytic external B-field -----------------------------------------------
 warpx.B_ext_grid_init_style = parse_B_ext_grid_function
-warpx.Bx_external_grid_function(x,y,z) = {bf.Bx_expression}
-warpx.By_external_grid_function(x,y,z) = {bf.By_expression}
-warpx.Bz_external_grid_function(x,y,z) = {bf.Bz_expression}
+warpx.Bx_external_grid_function(x,y,z) = {bx}
+warpx.By_external_grid_function(x,y,z) = {by}
+warpx.Bz_external_grid_function(x,y,z) = {bz}
 """
 
     # ------------------------------------------------------------------
