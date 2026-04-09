@@ -276,6 +276,9 @@ PhysicalParticleContainer::PhysicalParticleContainer (AmrCore* amr_core, int isp
     if (m_do_qed_virtual_photons) {
         pp_species_name.query("qed_virtual_photon_species_name", m_qed_virtual_photon_species_name);
     }
+
+    pp_species_name.query("qed_virtual_photons_do_beam_size_effect", m_qed_virtual_photons_do_beam_size_effect);
+
 #endif
 
     // User-defined integer attributes
@@ -403,6 +406,21 @@ PhysicalParticleContainer::BackwardCompatibility ()
     if (pp_species_name.query("plot_species", backward_int)){
         WARPX_ABORT_WITH_MESSAGE("<species>.plot_species is not supported anymore. "
                      "Please use the new syntax for diagnostics, see documentation.");
+    }
+
+    std::string backward_profile_type;
+    if (pp_species_name.query("profile", backward_profile_type) && backward_profile_type == "predefined"){
+        WARPX_ABORT_WITH_MESSAGE(
+            "<species>.profile = predefined is no longer supported. "
+            "Please use <species>.profile = parse_density_function instead.");
+    }
+
+    std::string backward_mom_dist;
+    if (pp_species_name.query("momentum_distribution_type", backward_mom_dist) &&
+        backward_mom_dist == "radial_expansion") {
+        WARPX_ABORT_WITH_MESSAGE(
+            "<species>.momentum_distribution_type = radial_expansion is not supported anymore. "
+            "Please use momentum_distribution_type = parse_momentum_function instead.");
     }
 }
 
@@ -1746,6 +1764,11 @@ bool PhysicalParticleContainer::has_breit_wheeler () const
 bool PhysicalParticleContainer::has_virtual_photons () const
 {
     return m_do_qed_virtual_photons;
+}
+
+bool PhysicalParticleContainer::has_virtual_photons_beam_size_effect () const
+{
+    return m_qed_virtual_photons_do_beam_size_effect;
 }
 
 int PhysicalParticleContainer::getVirtualPhotonSpeciesIndex() const{
