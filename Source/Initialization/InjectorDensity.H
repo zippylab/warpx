@@ -272,6 +272,33 @@ struct InjectorDensity
         }
     }
 
+    // DEBUG: print internal state from device kernel (SYCL-safe)
+    // Uses sycl::ext::oneapi::experimental::printf which is safe in device code.
+#if defined(__SYCL_DEVICE_ONLY__)
+    AMREX_GPU_DEVICE
+    void debugPrint (const char* label) const noexcept
+    {
+        int t = static_cast<int>(type);
+        sycl::ext::oneapi::experimental::printf(
+            "[InjDensity %s] type=%d (0=const,1=predef,2=parser,3=file) "
+            "sizeof=%d this=%p\n",
+            label, t, static_cast<int>(sizeof(InjectorDensity)),
+            static_cast<const void*>(this));
+        if (type == Type::parser) {
+            auto const& pe = object.parser.m_parser;
+            sycl::ext::oneapi::experimental::printf(
+                "[InjDensity %s]   parser host_exec=%p dev_exec=%p\n",
+                label,
+                static_cast<const void*>(pe.m_host_executor),
+                static_cast<const void*>(pe.m_device_executor));
+        } else if (type == Type::constant) {
+            amrex::Real rho = object.constant.getDensity(0,0,0);
+            sycl::ext::oneapi::experimental::printf(
+                "[InjDensity %s]   constant rho=%.6e\n", label, rho);
+        }
+    }
+#endif
+
 private:
     enum struct Type { constant, predefined, parser, fromfile };
     Type type;
