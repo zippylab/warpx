@@ -1,8 +1,25 @@
 # Configuration ###############################################################
 #
 if(WarpX_MPI)
+    # Detect Open MPI by inspecting the MPI header — more reliable than
+    # parsing mpiexec --help output, which varies by launcher (e.g. Cray
+    # PALS mpiexec does not identify itself as Open MPI but its --help
+    # text can contain misleading strings).
+    # OMPI_MAJOR_VERSION is defined in mpi.h for Open MPI; MPICH_VERSION
+    # is defined for MPICH/Cray MPICH; neither defines the other's macro.
+    if(MPI_C_HEADER_DIR)
+        file(STRINGS "${MPI_C_HEADER_DIR}/mpi.h" _mpi_h_strings
+             REGEX "OMPI_MAJOR_VERSION")
+        if(_mpi_h_strings)
+            set(_WarpX_MPI_IS_OPENMPI ON)
+        else()
+            set(_WarpX_MPI_IS_OPENMPI OFF)
+        endif()
+        unset(_mpi_h_strings)
+    endif()
+
     # OpenMPI root guard: https://github.com/open-mpi/ompi/issues/4451
-    if("$ENV{USER}" STREQUAL "root")
+    if("$ENV{USER}" STREQUAL "root" AND _WarpX_MPI_IS_OPENMPI)
         # calling even --help as root will abort and warn on stderr
         execute_process(
             COMMAND ${MPIEXEC_EXECUTABLE} --help
@@ -111,7 +128,13 @@ function(add_warpx_test
     # Avoid the following error seen with Open MPI 4.1.6 in the Azure pipelines:
     # "There are not enough slots available in the system to satisfy the 2 slots
     # that were requested by the application"
-    set(MPI_HOST_NUMPROC --host localhost:${nprocs})
+    # Only applies to Open MPI; other launchers (e.g. Cray PALS mpiexec)
+    # interpret --host as an RPC endpoint and fail with ECONNREFUSED.
+    if(_WarpX_MPI_IS_OPENMPI)
+        set(MPI_HOST_NUMPROC --host localhost:${nprocs})
+    else()
+        set(MPI_HOST_NUMPROC)
+    endif()
 
     # set MPI executable
     set(THIS_MPI_TEST_EXE
