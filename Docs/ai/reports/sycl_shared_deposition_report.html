@@ -1,0 +1,568 @@
+<title>Shared-Memory Deposition on PVC</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Sans+Condensed:wght@500;600&display=swap');
+
+  :root {
+    --paper: #f4f2ec;
+    --paper-raised: #fbfaf6;
+    --ink: #23241f;
+    --ink-soft: #55564c;
+    --ink-faint: #8a8b7f;
+    --rule: #d9d6c8;
+    --rule-strong: #b9b6a4;
+    --accent: #0f6e6a;
+    --accent-strong: #0a4f4c;
+    --accent-tint: #dfeeec;
+    --amber: #a15c1f;
+    --amber-tint: #f3e5d4;
+    --code-bg: #ece8dc;
+    --good: #3d7a3a;
+    --warn: #a15c1f;
+    --bad: #a13a2f;
+    --shadow: 0 1px 2px rgba(35,36,31,0.06), 0 8px 24px -12px rgba(35,36,31,0.18);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #17181b;
+      --paper-raised: #1e2023;
+      --ink: #e9e7de;
+      --ink-soft: #b2b0a3;
+      --ink-faint: #7d7c72;
+      --rule: #34363a;
+      --rule-strong: #45474c;
+      --accent: #4fc3bc;
+      --accent-strong: #7fd9d3;
+      --accent-tint: #14302e;
+      --amber: #d99a52;
+      --amber-tint: #332417;
+      --code-bg: #202225;
+      --good: #6fae6a;
+      --warn: #d99a52;
+      --bad: #d97362;
+      --shadow: 0 1px 2px rgba(0,0,0,0.4), 0 8px 24px -12px rgba(0,0,0,0.6);
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #17181b;
+    --paper-raised: #1e2023;
+    --ink: #e9e7de;
+    --ink-soft: #b2b0a3;
+    --ink-faint: #7d7c72;
+    --rule: #34363a;
+    --rule-strong: #45474c;
+    --accent: #4fc3bc;
+    --accent-strong: #7fd9d3;
+    --accent-tint: #14302e;
+    --amber: #d99a52;
+    --amber-tint: #332417;
+    --code-bg: #202225;
+    --good: #6fae6a;
+    --warn: #d99a52;
+    --bad: #d97362;
+    --shadow: 0 1px 2px rgba(0,0,0,0.4), 0 8px 24px -12px rgba(0,0,0,0.6);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 64px 28px 120px;
+  }
+
+  /* ---- Masthead ---- */
+  .masthead {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 24px;
+    padding-bottom: 20px;
+    border-bottom: 2px solid var(--ink);
+    margin-bottom: 6px;
+  }
+  .masthead-id {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+  .masthead-id .sep { margin: 0 8px; opacity: 0.5; }
+  .doc-title {
+    font-family: 'IBM Plex Sans Condensed', sans-serif;
+    font-weight: 600;
+    font-size: clamp(30px, 5vw, 42px);
+    line-height: 1.08;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+    margin: 14px 0 4px;
+  }
+  .doc-sub {
+    color: var(--ink-soft);
+    font-size: 16px;
+    max-width: 62ch;
+  }
+  .meta-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 28px;
+    margin-top: 22px;
+    padding-top: 18px;
+    border-top: 1px solid var(--rule);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12.5px;
+    color: var(--ink-soft);
+  }
+  .meta-strip b { color: var(--ink); font-weight: 600; }
+
+  /* ---- Section rhythm ---- */
+  section { margin-top: 56px; }
+  .kicker {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .kicker::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--rule);
+  }
+  h2 {
+    font-family: 'IBM Plex Sans Condensed', sans-serif;
+    font-weight: 600;
+    font-size: 25px;
+    letter-spacing: -0.005em;
+    text-wrap: balance;
+    margin: 0 0 14px;
+  }
+  h3 {
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-weight: 600;
+    font-size: 16.5px;
+    margin: 28px 0 10px;
+    color: var(--ink);
+  }
+  p { max-width: 68ch; margin: 0 0 14px; }
+  p.wide { max-width: none; }
+  ul, ol { max-width: 66ch; padding-left: 1.3em; margin: 0 0 16px; }
+  li { margin-bottom: 6px; }
+  a { color: var(--accent-strong); text-decoration-color: var(--rule-strong); text-underline-offset: 2px; }
+  a:hover { text-decoration-color: currentColor; }
+  code {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.88em;
+    background: var(--code-bg);
+    padding: 0.1em 0.4em;
+    border-radius: 3px;
+  }
+  strong { font-weight: 600; }
+
+  /* ---- Callout / finding boxes ---- */
+  .finding {
+    background: var(--paper-raised);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--accent);
+    border-radius: 4px;
+    padding: 16px 20px;
+    margin: 18px 0;
+    box-shadow: var(--shadow);
+  }
+  .finding .label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 6px;
+  }
+  .finding p:last-child { margin-bottom: 0; }
+  .finding.amber { border-left-color: var(--amber); }
+  .finding.amber .label { color: var(--amber); }
+
+  /* ---- Instrument strip: the metrics that justify token/compute spend ---- */
+  .panel {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    overflow: hidden;
+    margin: 20px 0 8px;
+    box-shadow: var(--shadow);
+  }
+  .cell {
+    background: var(--paper-raised);
+    padding: 16px 16px 14px;
+  }
+  .cell .n {
+    font-family: 'IBM Plex Mono', monospace;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    font-size: 26px;
+    color: var(--ink);
+    line-height: 1;
+  }
+  .cell .n .unit { font-size: 14px; color: var(--ink-faint); margin-left: 3px; font-weight: 500; }
+  .cell .lbl {
+    margin-top: 6px;
+    font-size: 11.5px;
+    color: var(--ink-soft);
+    letter-spacing: 0.01em;
+  }
+
+  /* ---- Timeline ---- */
+  .timeline { margin: 20px 0 8px; }
+  .tl-row {
+    display: grid;
+    grid-template-columns: 96px 1fr;
+    gap: 18px;
+    padding: 12px 0;
+    border-top: 1px solid var(--rule);
+  }
+  .tl-row:last-child { border-bottom: 1px solid var(--rule); }
+  .tl-date {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    color: var(--ink-faint);
+    padding-top: 2px;
+    white-space: nowrap;
+  }
+  .tl-body h4 {
+    margin: 0 0 4px;
+    font-size: 14.5px;
+    font-weight: 600;
+    font-family: 'IBM Plex Sans', sans-serif;
+  }
+  .tl-body p { margin: 0; font-size: 14px; color: var(--ink-soft); max-width: 60ch; }
+  .tl-tag {
+    display: inline-block;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 1px 7px;
+    border-radius: 20px;
+    margin-left: 8px;
+    position: relative;
+    top: -1px;
+  }
+  .tag-fix { background: var(--amber-tint); color: var(--amber); }
+  .tag-perf { background: var(--accent-tint); color: var(--accent-strong); }
+
+  /* ---- Data tables ---- */
+  .tbl-wrap { overflow-x: auto; margin: 18px 0; border: 1px solid var(--rule); border-radius: 6px; box-shadow: var(--shadow); }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; background: var(--paper-raised); min-width: 560px; }
+  caption { text-align: left; font-size: 12px; color: var(--ink-faint); padding: 10px 14px 0; caption-side: top; font-family: 'IBM Plex Mono', monospace; }
+  th, td {
+    padding: 9px 14px;
+    text-align: right;
+    border-bottom: 1px solid var(--rule);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  th:first-child, td:first-child { text-align: left; white-space: normal; }
+  thead th {
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 600;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    background: var(--code-bg);
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  .num-good { color: var(--good); font-weight: 600; }
+  .num-bad { color: var(--bad); }
+  .platform-row td:first-child { font-weight: 600; }
+
+  /* ---- Root-cause diagram block ---- */
+  .rootcause {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 14px;
+    margin: 20px 0;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12.5px;
+  }
+  .rc-box {
+    border: 1px solid var(--rule-strong);
+    background: var(--paper-raised);
+    border-radius: 4px;
+    padding: 12px 14px;
+  }
+  .rc-box .k { color: var(--ink-faint); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em; display: block; margin-bottom: 4px; }
+  .rc-arrow { color: var(--bad); font-size: 20px; text-align: center; }
+  @media (max-width: 560px) {
+    .rootcause { grid-template-columns: 1fr; }
+    .rc-arrow { transform: rotate(90deg); }
+  }
+
+  /* ---- Pull quote / verbatim ---- */
+  .verbatim {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12.5px;
+    background: var(--code-bg);
+    border-radius: 6px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    line-height: 1.55;
+    margin: 14px 0;
+    white-space: pre;
+  }
+
+  hr.section-rule {
+    border: none;
+    border-top: 1px solid var(--rule);
+    margin: 56px 0 0;
+  }
+
+  footer {
+    margin-top: 64px;
+    padding-top: 18px;
+    border-top: 2px solid var(--ink);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11.5px;
+    color: var(--ink-faint);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  ::selection { background: var(--accent-tint); }
+</style>
+
+<div class="page">
+
+  <div class="masthead">
+    <div>
+      <div class="masthead-id">WarpX / Aurora–PVC<span class="sep">&middot;</span>Engineering Report</div>
+      <h1 class="doc-title">Shared-Memory Deposition on PVC</h1>
+      <p class="doc-sub">Diagnosing a hardware-level slowdown in particle deposition, porting a HIP/CUDA-only kernel to SYCL, and validating the fix across three DOE GPU platforms.</p>
+    </div>
+  </div>
+  <div class="meta-strip">
+    <span><b>Period</b> 2026&#8209;09&#8209;01 &rarr; 2026&#8209;09&#8209;11</span>
+    <span><b>Systems</b> Aurora/Sunspot (PVC) &middot; Polaris (A100) &middot; Frontier (MI250X)</span>
+    <span><b>Outcome</b> merged to fork, pushed, ready to share</span>
+  </div>
+
+  <section>
+    <div class="kicker">Summary</div>
+    <p class="wide">WarpX's current-deposition step &mdash; the part of the particle-in-cell loop that scatters each particle's contribution onto the field grid &mdash; was measured at roughly <strong>2&ndash;6&times; slower per atomic operation</strong> on Intel's Ponte Vecchio (PVC) GPUs than on NVIDIA A100 or AMD MI250X, for the same physics and the same algorithm. That gap is what made deposition the dominant cost in production runs on Aurora. The root cause turned out to be a genuine PVC hardware characteristic, not a missing compiler flag &mdash; so the fix was not to speed up the atomic instruction, but to use far fewer of them. AMReX/WarpX already has a faster algorithm for this &mdash; shared-memory deposition, which batches many particles' contributions in fast on-chip memory before one bulk write to the main grid &mdash; but it had only ever been implemented for CUDA and HIP. It did not exist for SYCL, the language PVC requires.</p>
+    <p class="wide">This report covers porting that kernel to SYCL, tracking down a hardware-specific atomic-memory bug along the way, and empirically tuning and validating the result on Aurora/Sunspot, Polaris, and Frontier before landing it as a nine-line-summarized, four-file patch on a public branch of the user's WarpX fork.</p>
+  </section>
+
+  <section>
+    <div class="kicker">Result</div>
+    <div class="panel">
+      <div class="cell"><div class="n">3.2<span class="unit">&times;</span></div><div class="lbl">current-deposition speedup, PVC, tuned</div></div>
+      <div class="cell"><div class="n">10.1<span class="unit">&times;</span></div><div class="lbl">charge-deposition speedup, PVC, tuned</div></div>
+      <div class="cell"><div class="n">2.75<span class="unit">&times;</span></div><div class="lbl">measured step-time speedup, dense case</div></div>
+      <div class="cell"><div class="n">3</div><div class="lbl">GPU architectures validated</div></div>
+      <div class="cell"><div class="n">40</div><div class="lbl">scheduler jobs across 3 facilities</div></div>
+      <div class="cell"><div class="n">7</div><div class="lbl">upstream unit tests, all passing</div></div>
+    </div>
+    <p style="font-size: 13px; color: var(--ink-faint); margin-top: 10px;">Speedups are for a dense test case (640 particles/cell/species) representative of the affected production runs, and include the particle-sorting cost the shared path uniquely requires; see <a href="#validation">Cross-Platform Validation</a> for the full table and the caveats behind each number.</p>
+  </section>
+
+  <hr class="section-rule">
+
+  <section>
+    <div class="kicker">Root Cause</div>
+    <h2>Why PVC was slow, specifically</h2>
+    <p>Direct deposition works by having every particle write its contribution straight to the shared field grid with an atomic add &mdash; a hardware-guaranteed "don't lose this update even if another particle writes here at the same instant." A cross-platform microbenchmark, built specifically to isolate this one operation from everything else the simulation does, measured that single atomic add at matched contention levels on real hardware:</p>
+
+    <div class="tbl-wrap">
+      <table>
+        <caption>ns per atomic add, double precision, lower is better</caption>
+        <thead>
+          <tr><th>Contention</th><th>A100</th><th>PVC (direct)</th><th>Ratio</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>High (64 targets)</td><td>0.246</td><td>0.883</td><td class="num-bad">3.6&times;</td></tr>
+          <tr><td>Moderate</td><td>0.025</td><td>0.054</td><td class="num-bad">2.2&times;</td></tr>
+          <tr><td>Low</td><td>0.0073</td><td>0.021</td><td class="num-bad">2.9&times;</td></tr>
+          <tr><td>Near-zero</td><td>0.0072</td><td>0.041</td><td class="num-bad">5.7&times;</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>No compiler flag, cache-hint variant, or hand-tuned instruction sequence closed this gap &mdash; it was confirmed, via disassembly and hardware instrumentation, to be a genuine property of PVC's memory fabric under contention, not a software oversight. That reframed the problem: instead of trying to make the expensive operation cheaper, the fix was to <em>do it far less often</em>.</p>
+
+    <div class="rootcause">
+      <div class="rc-box"><span class="k">Existing gap</span>Shared-memory deposition worked on CUDA &amp; HIP only</div>
+      <div class="rc-arrow">&rarr;</div>
+      <div class="rc-box"><span class="k">Consequence</span>PVC always used the slow direct path</div>
+    </div>
+
+    <p>AMReX's shared-memory deposition algorithm exists to solve exactly this: batch a whole tile's worth of particles into fast on-chip local memory first, then issue one atomic write per grid cell to the real field array instead of one per particle. It was already implemented and proven &mdash; on CUDA and HIP only. On SYCL, it simply didn't compile. That gap, not the atomic-instruction cost itself, was the actual lever available to pull.</p>
+  </section>
+
+  <section>
+    <div class="kicker">The Bug</div>
+    <h2>A silent address-space mismatch</h2>
+    <p>Porting the kernel to SYCL compiled cleanly on the first attempt but crashed on real hardware with a GPU-side atomic page fault &mdash; and, unhelpfully, the crash vanished when reproduced under a debugger, the classic signature of a race condition. A systematic bisection (returning early from the kernel at successively later points until the crash reappeared) narrowed the fault to one specific call, and reading straight from AMReX's own atomic-operations header explained why:</p>
+
+    <div class="finding amber">
+      <div class="label">Root cause</div>
+      <p>AMReX's SYCL atomic-add function accepts a memory address-space as a template parameter, but silently defaults it to <code>global_space</code> when the caller doesn't specify one. Shared-memory deposition's per-particle writes target a buffer that lives in local/shared memory &mdash; a different address space entirely. The atomic operation was quietly being told to look for its target in the wrong region of memory, which corrupts the address it resolves to on PVC and produces exactly the observed crash.</p>
+    </div>
+
+    <p>The fix is a small wrapper function that explicitly targets <code>local_space</code> on SYCL, while remaining a pure pass-through on CUDA and HIP with zero behavior change &mdash; confirmed not just by reading the code, but by disassembling the actual compiled machine code for both the pre-fix and post-fix versions on AMD hardware and comparing instruction-by-instruction: identical count and sequence of synchronization barriers and atomic operations, with only register allocation differing.</p>
+  </section>
+
+  <hr class="section-rule">
+
+  <section id="validation">
+    <div class="kicker">Cross-Platform Validation</div>
+    <h2>Tuned, not just fixed</h2>
+    <p>A kernel that merely compiles and produces the right answer is not the same as one that's actually faster. A literature check before investing further turned up a real cautionary data point: an outside user testing a separate, related shared-memory deposition port under review upstream (a still-open WarpX pull request implementing a different algorithm variant) had reported it running <em>20&ndash;40&times; slower</em> than direct deposition on their hardware &mdash; the opposite of the speedup its own author had measured elsewhere. That made tuning, not just correctness, a real risk for this port rather than a formality. It turned out two parameters &mdash; thread-block size and tile size &mdash; mattered enormously, and the values already hardcoded as WarpX's defaults (carried over from earlier CUDA/HIP tuning) were actively harmful or, at best, neutral on every platform tested here:</p>
+
+    <div class="tbl-wrap">
+      <table>
+        <caption>current-deposition kernel time (incl. particle sort), dense test case, seconds &mdash; lower is better</caption>
+        <thead>
+          <tr><th>Platform</th><th>Direct</th><th>Shared, old default<br>(tpb=128, tile=6,6,8)</th><th>Shared, tuned<br>(tpb=256, tile=4,4,4)</th></tr>
+        </thead>
+        <tbody>
+          <tr class="platform-row"><td>Aurora/Sunspot &middot; PVC</td><td>105.0</td><td>105.0 <span style="color:var(--ink-faint)">(no gain)</span></td><td class="num-good">33.2 (3.16&times;)</td></tr>
+          <tr class="platform-row"><td>Polaris &middot; A100</td><td>2.72</td><td>3.19 <span class="num-bad">(0.85&times;, a loss)</span></td><td class="num-good">2.34 (1.16&times;)</td></tr>
+          <tr class="platform-row"><td>Frontier &middot; MI250X</td><td>7.75</td><td>3.66 (2.12&times;)</td><td class="num-good">2.04 (3.81&times;)</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>The same tuned setting &mdash; <code>tpb=256</code>, tile size <code>4&times;4&times;4</code> &mdash; won or tied for best on all three architectures once swept, letting the fix stand on one well-justified default rather than three separate special cases. Both parameters remain ordinary user-settable input-file options, so this is a starting point a user can still override, not a ceiling. On PVC specifically, charge deposition benefited even more from the same fix &mdash; <strong>10.1&times;</strong> at this density &mdash; since its thread-block size happened to already be well-chosen; on Polaris it produced a real but visibly smaller gain, consistent with A100 tolerating the atomics-heavy direct path better than PVC does in the first place.</p>
+
+    <div class="finding">
+      <div class="label">Reading these numbers honestly</div>
+      <p>The shared-memory path requires an extra step direct deposition never does &mdash; sorting particles into per-tile bins before depositing &mdash; and at moderate particle density that sorting cost can cancel out most of the kernel-level win. The table above already includes it. Isolating the deposition kernel alone, without the sorting cost, showed a larger apparent PVC win early in this investigation (up to 10.7&times; at this density); that number was set aside in favor of the fuller, sort-inclusive figure above once the extra cost was traced and measured, since it is the fairer comparison for anyone deciding whether to turn this feature on.</p>
+    </div>
+
+    <h3>Correctness</h3>
+    <p>Before any performance claim, the shared-memory path's numerical output was checked field-by-field against the existing, trusted direct-deposition path across a full simulation run &mdash; electric and magnetic fields, current density, charge density, and divergence &mdash; landing at roughly <code>2&times;10&#8315;&sup1;&sup2;</code> relative difference, i.e. ordinary floating-point roundoff from summing numbers in a different order, not a real discrepancy. Separately, all seven of WarpX's own current- and charge-deposition unit tests &mdash; added by the WarpX maintainers to the upstream project the same week, unprompted and unrelated to this work &mdash; passed cleanly against the finished patch.</p>
+  </section>
+
+  <section>
+    <div class="kicker">Timeline</div>
+    <h2>Sep 1 &ndash; Sep 11, day by day</h2>
+    <div class="timeline">
+      <div class="tl-row">
+        <div class="tl-date">Sep&nbsp;1&ndash;3</div>
+        <div class="tl-body">
+          <h4>Environment &amp; baseline</h4>
+          <p>Synced the working tree to the latest upstream WarpX, rebuilt on Sunspot, and confirmed via source tracing that the target benchmark genuinely exercised the atomics-based deposition path in question. Wrote and ran a standalone, three-way-portable microbenchmark to measure the raw atomic-add cost on PVC, A100, and MI250X hardware directly, rather than relying on vendor specifications.</p>
+        </div>
+      </div>
+      <div class="tl-row">
+        <div class="tl-date">Sep&nbsp;5</div>
+        <div class="tl-body">
+          <h4>Port begins, crash found <span class="tl-tag tag-fix">investigation</span></h4>
+          <p>Began porting the shared-memory kernel to SYCL. It compiled but crashed on hardware with a GPU-side atomic fault that disappeared under a debugger. A scheduled maintenance window on Sunspot paused the investigation mid-bisection.</p>
+        </div>
+      </div>
+      <div class="tl-row">
+        <div class="tl-date">Sep&nbsp;8&ndash;9</div>
+        <div class="tl-body">
+          <h4>Root cause, fix, and correctness <span class="tl-tag tag-fix">fix landed</span></h4>
+          <p>Resumed once compute nodes returned. Completed the bisection, traced the crash to the SYCL atomic address-space default, and fixed it. Verified the corrected kernel matched direct deposition to floating-point roundoff, then measured a first, promising speedup on PVC.</p>
+        </div>
+      </div>
+      <div class="tl-row">
+        <div class="tl-date">Sep&nbsp;9&ndash;10</div>
+        <div class="tl-body">
+          <h4>Tuning &amp; the real number <span class="tl-tag tag-perf">performance</span></h4>
+          <p>Swept block-size and tile-size settings on PVC at higher, more representative particle densities, finding the shared default settings were actively counterproductive. Diagnosed that an initial "step-loop" comparison was accidentally dominated by one-time disk I/O rather than compute, and re-derived the honest, compute-only comparison.</p>
+        </div>
+      </div>
+      <div class="tl-row">
+        <div class="tl-date">Sep&nbsp;10&ndash;11</div>
+        <div class="tl-body">
+          <h4>Polaris &amp; Frontier <span class="tl-tag tag-perf">cross-platform</span></h4>
+          <p>Rebuilt and ran the same benchmark suite on Polaris (A100) and Frontier (MI250X) to check whether PVC's fix and tuning generalized. Diagnosed and worked around a stale system module conflict on Polaris and an intermittent network path issue reaching Frontier along the way; both were pre-existing infrastructure quirks, unrelated to the WarpX code itself.</p>
+        </div>
+      </div>
+      <div class="tl-row">
+        <div class="tl-date">Sep&nbsp;11</div>
+        <div class="tl-body">
+          <h4>Landed <span class="tl-tag tag-fix">shipped</span></h4>
+          <p>Fast-forwarded to the latest upstream WarpX, rebuilt, re-ran the maintainers' new unit tests to confirm nothing regressed, then committed the four-file patch to a new branch and pushed it to the user's public GitHub fork, ready to share.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="section-rule">
+
+  <section>
+    <div class="kicker">Compute &amp; Cost Accounting</div>
+    <h2>What it took to get here</h2>
+    <p>This work ran as an interactive, tool-using AI session rather than a fixed compute allocation, so there is no separate "AI cost" line item distinct from the HPC time itself &mdash; the assistant submitted and monitored real scheduler jobs on real allocations, the same as a person would. What follows is what can be reconstructed from the job scheduler logs and file timestamps left behind; there is no token-usage or wall-clock-session metering available to this report, and that gap is called out rather than estimated.</p>
+
+    <div class="tbl-wrap">
+      <table>
+        <caption>scheduler jobs submitted, by facility</caption>
+        <thead>
+          <tr><th>Facility</th><th>Scheduler</th><th>GPU</th><th>Jobs</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Aurora / Sunspot (ALCF)</td><td>PBS</td><td>Intel PVC</td><td>25</td></tr>
+          <tr><td>Polaris (ALCF)</td><td>PBS</td><td>NVIDIA A100</td><td>7</td></tr>
+          <tr><td>Frontier (OLCF)</td><td>Slurm</td><td>AMD MI250X</td><td>8</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>Most individual jobs were short &mdash; single-node, well under the 20&ndash;90&nbsp;minute walltimes requested, since the physics test case was deliberately kept small enough to iterate quickly rather than run at production scale. A meaningful share of the job count reflects legitimate engineering overhead rather than the core investigation: re-running after a scheduled facility maintenance window, working around a stale software module on Polaris, and recovering from a disk-quota limit hit twice while iterating on parameter sweeps. None of that overhead is unique to using an AI agent for the work &mdash; the same false starts show up in ordinary manual HPC debugging &mdash; but it is included here for a complete accounting.</p>
+
+    <h3>What the job count bought</h3>
+    <ul>
+      <li><strong>One hardware-verified root cause</strong> instead of a guess: the atomic-cost disparity and the address-space bug were both confirmed by direct measurement and disassembly, not inferred from documentation.</li>
+      <li><strong>Three independent confirmations</strong> that the fix and tuning approach generalizes, rather than one lucky result on one machine.</li>
+      <li><strong>A tuned default</strong> grounded in eight distinct block-size/tile-size combinations measured on real silicon, not carried over unchanged from a different vendor's GPU.</li>
+      <li><strong>Zero regressions</strong>, checked against both this project's own correctness tests and the WarpX maintainers' independently-written test suite.</li>
+    </ul>
+  </section>
+
+  <section>
+    <div class="kicker">Delivered</div>
+    <h2>What's on the fork</h2>
+    <p>Four files changed, 190 lines added and 43 removed, in one commit on branch <code>sycl-shared-mem-deposition</code> of the user's public WarpX fork:</p>
+    <div class="verbatim">Source/Particles/Deposition/CurrentDeposition.H       64 changed
+Source/Particles/Deposition/ChargeDeposition.H        74 changed
+Source/Particles/Deposition/SharedDepositionUtils.H    77 changed
+Source/WarpX.cpp                                       18 changed</div>
+    <p>The branch is public and requires no access grant to clone or check out. A colleague on Aurora who had been using direct deposition and finding it too slow has already been given the two-line input-file change (or Python/PICMI equivalent) needed to switch over.</p>
+
+    <div class="finding amber">
+      <div class="label">Known open item</div>
+      <p>During Frontier/MI250X validation, shared-memory current deposition crashed intermittently at the highest particle density tested (640 ppc/species). Comparing disassembled machine code confirmed the SYCL patch does not alter AMD codegen, so this is a pre-existing race condition in the original HIP implementation, not something this work introduced &mdash; but it was not root-caused or fixed here, and remains open. It does not affect the PVC target this work was scoped for.</p>
+    </div>
+  </section>
+
+  <footer>
+    <span>WarpX &middot; Aurora/PVC deposition performance</span>
+    <span>Prepared 2026&#8209;09&#8209;12</span>
+  </footer>
+
+</div>
