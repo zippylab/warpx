@@ -7,7 +7,7 @@
 
 import numpy as np
 import pytest
-from conftest import rtol
+from conftest import requires_shared_mem_deposition, rtol
 from helpers import N_AXES, add_uniform_particles, make_sim
 
 import pywarpx
@@ -79,6 +79,48 @@ def test_charge_deposition_conserves_total_charge(particle_shape):
     )
 
     assert np.isclose(deposited_charge, expected_charge, rtol=rtol(), atol=0.0)
+
+
+@requires_shared_mem_deposition
+@pytest.mark.parametrize("particle_shape", ["linear", "quadratic", "cubic"])
+def test_charge_deposition_shared_mem_matches_direct(particle_shape):
+    """Shared-memory charge deposition must agree with the direct deposition.
+
+    Like its current-deposition counterpart, this compares the two kernels
+    cell by cell rather than against an analytic total, which is what catches
+    a buffer that is indexed or reduced incorrectly. Every B-spline order is a
+    separately compiled kernel, and each sizes the shared-memory buffer from
+    its own stencil width, so all three are covered.
+    """
+    n_per_dim = 4
+    weight = 1.0e6
+
+    def deposited_rho(shared):
+        pywarpx.warpx.do_shared_mem_charge_deposition = shared
+        sim = make_sim(particle_shape=particle_shape)
+        sim.add_species(
+            picmi.Species(particle_type="electron", name="electrons"), layout=None
+        )
+        sim.initialize_inputs()
+        sim.initialize_warpx()
+
+        add_uniform_particles(sim, "electrons", n_per_dim=n_per_dim, weight=weight)
+
+        electrons = sim.particles.get("electrons")
+        rho = np.asarray(electrons.get_charge_density(lev=0, local=False)[:])
+        pywarpx.warpx.finalize()
+        return rho
+
+    rho_direct = deposited_rho(False)
+    rho_shared = deposited_rho(True)
+
+    assert rho_shared.shape == rho_direct.shape
+    np.testing.assert_allclose(
+        rho_shared,
+        rho_direct,
+        rtol=rtol(),
+        atol=np.abs(rho_direct).max() * rtol(),
+    )
 
 
 def test_charge_deposition_is_negative_for_electrons():

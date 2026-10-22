@@ -99,6 +99,15 @@ def rtol():
     )
 
 
+# The shared-memory deposition kernels in Source/Particles/Deposition are
+# compiled only for CUDA, HIP and SYCL, and WarpX.cpp asserts against enabling
+# them on any other backend. A CPU build therefore cannot run these at all.
+requires_shared_mem_deposition = pytest.mark.skipif(
+    Config.gpu_backend not in ("CUDA", "HIP", "SYCL"),
+    reason="shared-memory deposition is only compiled for CUDA, HIP and SYCL",
+)
+
+
 # autouse: pytest wraps every test_* function under tests/unit in this, once per
 # parametrized case, without the test having to ask for it. What is before the
 # yield runs as setup, what is after it as teardown, also when the test fails.
