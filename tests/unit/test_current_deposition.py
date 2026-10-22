@@ -7,7 +7,7 @@
 
 import numpy as np
 import pytest
-from conftest import rtol
+from conftest import requires_shared_mem_deposition, rtol
 from helpers import N_AXES, add_uniform_particles, make_sim
 
 import pywarpx
@@ -83,6 +83,68 @@ def test_current_deposition_conserves_total_current(current_deposition_algo):
             * cell_volume
         )
         assert np.isclose(total_j, 0.0, atol=abs(expected_jz) * rtol())
+
+
+@requires_shared_mem_deposition
+def test_current_deposition_shared_mem_matches_direct():
+    """Shared-memory current deposition must agree with the direct deposition.
+
+    The shared-memory path bins particles per tile and accumulates into a
+    GPU shared-memory buffer before adding that buffer to the global field,
+    rather than having every particle atomically write the global field. It is
+    a different kernel reaching the same answer, so it is tested by comparison
+    against the direct deposition rather than against an analytic value: the
+    conservation identity above would pass even if the per-cell distribution
+    were wrong.
+    """
+    uz = 1.0e8
+    n_per_dim = 4
+    weight = 1.0e6
+
+    def deposited_jz(shared):
+        pywarpx.warpx.do_shared_mem_current_deposition = shared
+        sim = make_sim(current_deposition_algo="direct")
+        sim.add_species(
+            picmi.Species(particle_type="electron", name="electrons"), layout=None
+        )
+        sim.initialize_inputs()
+        sim.initialize_warpx()
+
+        add_uniform_particles(
+            sim, "electrons", n_per_dim=n_per_dim, weight=weight, uz=uz
+        )
+
+        fields = sim.fields
+        for direction in ("x", "y", "z"):
+            fields.get("current_fp", direction, 0).set_val(0.0)
+
+        dt = sim.extension.warpx.getdt(0)
+        sim.particles.get("electrons").deposit_current("current_fp", 0, dt, 0.0)
+
+        # indexing the wrapper gathers the valid cells of the whole domain into
+        # one numpy array on every rank, so this works under MPI and for a
+        # device MultiFab alike. It must happen before the finalize below,
+        # which frees the MultiFab.
+        jz = np.asarray(fields.get("current_fp", "z", 0)[:])
+        pywarpx.warpx.finalize()
+        return jz
+
+    jz_direct = deposited_jz(False)
+    jz_shared = deposited_jz(True)
+
+    # cell by cell, not just the integral: the conservation identity is a
+    # single sum, which a kernel writing the right total into the wrong cells
+    # would still satisfy
+    assert jz_shared.shape == jz_direct.shape
+    np.testing.assert_allclose(
+        jz_shared,
+        jz_direct,
+        rtol=rtol(),
+        # the two kernels accumulate the same contributions in a different
+        # order, so cells near zero differ by roundoff on the scale of the
+        # largest current in the array, not of their own magnitude
+        atol=np.abs(jz_direct).max() * rtol(),
+    )
 
 
 def test_current_deposition_sums_mixed_weights():
