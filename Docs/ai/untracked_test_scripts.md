@@ -22,6 +22,17 @@ Alongside them are the PBS logs and output directories of the runs that
 produced the results quoted in `reports/sycl_shared_deposition_report.md` and
 in the commit message of `c06bf8763`.
 
+### `perf_langmuir_direct/`
+
+The tile-size and thread-block sweeps, atomic microbenchmarks and correctness
+runs behind the tuning tables in `reports/sycl_shared_deposition_report.md`,
+including the PVC auto-default that commit `2b4cc0be5` hardcodes. Roughly a
+dozen `.pbs` scripts with their logs, plus the plotfiles of every run, which
+is why this is ~950 GB: a candidate for pruning once the report's numbers are
+no longer worth reproducing from the raw output.
+
+Previously at `Testing/perf_langmuir_direct/`, which git did not ignore.
+
 ### Results, on Sunspot (Intel PVC, 2 ranks)
 
 - The 7 pre-existing deposition tests pass, so the port is not a regression.
