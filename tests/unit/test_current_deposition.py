@@ -85,8 +85,18 @@ def test_current_deposition_conserves_total_current(current_deposition_algo):
         assert np.isclose(total_j, 0.0, atol=abs(expected_jz) * rtol())
 
 
+# Deposited jz for each `shared` case, so the second of the pair can compare
+# against the first. One simulation per test function is deliberate: running
+# both depositions inside a single test, finalizing in between, passed on
+# SYCL but aborted the pytest process on HIP with
+# "ParmParse::Initialize(): already initialized" once enough init/finalize
+# cycles had accumulated. See the same note in test_charge_deposition.py.
+_DEPOSITED_JZ = {}
+
+
 @requires_shared_mem_deposition
-def test_current_deposition_shared_mem_matches_direct():
+@pytest.mark.parametrize("shared", [False, True])
+def test_current_deposition_shared_mem_matches_direct(shared):
     """Shared-memory current deposition must agree with the direct deposition.
 
     The shared-memory path bins particles per tile and accumulates into a
@@ -96,41 +106,46 @@ def test_current_deposition_shared_mem_matches_direct():
     against the direct deposition rather than against an analytic value: the
     conservation identity above would pass even if the per-cell distribution
     were wrong.
+
+    Runs one deposition per invocation and caches it; whichever of the
+    ``shared`` pair runs second makes the comparison.
     """
     uz = 1.0e8
-    n_per_dim = 4
-    weight = 1.0e6
 
-    def deposited_jz(shared):
-        pywarpx.warpx.do_shared_mem_current_deposition = shared
-        sim = make_sim(current_deposition_algo="direct")
-        sim.add_species(
-            picmi.Species(particle_type="electron", name="electrons"), layout=None
-        )
-        sim.initialize_inputs()
-        sim.initialize_warpx()
+    # the autouse lifecycle fixture resets this flag after the test
+    pywarpx.warpx.do_shared_mem_current_deposition = shared
+    sim = make_sim(current_deposition_algo="direct")
+    sim.add_species(
+        picmi.Species(particle_type="electron", name="electrons"), layout=None
+    )
+    sim.initialize_inputs()
+    sim.initialize_warpx()
 
-        add_uniform_particles(
-            sim, "electrons", n_per_dim=n_per_dim, weight=weight, uz=uz
-        )
+    add_uniform_particles(sim, "electrons", n_per_dim=4, weight=1.0e6, uz=uz)
 
-        fields = sim.fields
-        for direction in ("x", "y", "z"):
-            fields.get("current_fp", direction, 0).set_val(0.0)
+    fields = sim.fields
+    for direction in ("x", "y", "z"):
+        fields.get("current_fp", direction, 0).set_val(0.0)
 
-        dt = sim.extension.warpx.getdt(0)
-        sim.particles.get("electrons").deposit_current("current_fp", 0, dt, 0.0)
+    dt = sim.extension.warpx.getdt(0)
+    sim.particles.get("electrons").deposit_current("current_fp", 0, dt, 0.0)
 
-        # indexing the wrapper gathers the valid cells of the whole domain into
-        # one numpy array on every rank, so this works under MPI and for a
-        # device MultiFab alike. It must happen before the finalize below,
-        # which frees the MultiFab.
-        jz = np.asarray(fields.get("current_fp", "z", 0)[:])
-        pywarpx.warpx.finalize()
-        return jz
+    # indexing the wrapper gathers the valid cells of the whole domain into
+    # one numpy array on every rank, so this works under MPI and for a device
+    # MultiFab alike. It must happen before the fixture finalizes the run.
+    jz = np.asarray(fields.get("current_fp", "z", 0)[:])
 
-    jz_direct = deposited_jz(False)
-    jz_shared = deposited_jz(True)
+    # a deposition that produced nothing would compare equal to another empty
+    # one, so check this case stands on its own before pairing it
+    assert np.isfinite(jz).all()
+    assert np.abs(jz).max() > 0.0, "drifting electrons must deposit some Jz"
+
+    _DEPOSITED_JZ[shared] = jz
+
+    if (not shared) not in _DEPOSITED_JZ:
+        return  # the other half of the pair has not run yet
+
+    jz_direct, jz_shared = _DEPOSITED_JZ[False], _DEPOSITED_JZ[True]
 
     # cell by cell, not just the integral: the conservation identity is a
     # single sum, which a kernel writing the right total into the wrong cells

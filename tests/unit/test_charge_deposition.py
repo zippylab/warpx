@@ -67,7 +67,7 @@ def test_charge_deposition_conserves_total_charge(particle_shape):
 
     # allocates a nodal MultiFab, resets it, deposits, sums the guard cells and
     # applies the boundary/volume treatment
-    rho = electrons.get_charge_density(lev=0, local=False, finalize=True)
+    rho = electrons.get_charge_density(lev=0, local=False)
 
     # integrate rho over the domain: sum the unique nodes, times the cell volume.
     # Passing the periodicity matters, as rho is nodal and the nodes on the periodic
@@ -81,45 +81,69 @@ def test_charge_deposition_conserves_total_charge(particle_shape):
     assert np.isclose(deposited_charge, expected_charge, rtol=rtol(), atol=0.0)
 
 
+# Deposited rho from each (shape, shared) case, filled in as the parametrized
+# cases run so the second of a pair can compare against the first.
+#
+# This exists because a test function must run exactly ONE simulation. An
+# earlier version ran both the direct and the shared deposition inside one
+# test, finalizing in between. That passed on SYCL but aborted the whole
+# pytest process on HIP with "ParmParse::Initialize(): already initialized"
+# once enough init/finalize cycles had accumulated -- Frontier job 5786040
+# died at the third such test, taking the remaining cases with it. One
+# simulation per test keeps the cycle count the same as every other test in
+# this suite, which is a pattern already known to work on all backends.
+_DEPOSITED_RHO = {}
+
+
 @requires_shared_mem_deposition
+@pytest.mark.parametrize("shared", [False, True])
 @pytest.mark.parametrize("particle_shape", ["linear", "quadratic", "cubic"])
-def test_charge_deposition_shared_mem_matches_direct(particle_shape):
+def test_charge_deposition_shared_mem_matches_direct(particle_shape, shared):
     """Shared-memory charge deposition must agree with the direct deposition.
 
-    Like its current-deposition counterpart, this compares the two kernels
-    cell by cell rather than against an analytic total, which is what catches
-    a buffer that is indexed or reduced incorrectly. Every B-spline order is a
-    separately compiled kernel, and each sizes the shared-memory buffer from
-    its own stencil width, so all three are covered.
+    Compares the two kernels cell by cell rather than against an analytic
+    total, which is what catches a buffer that is indexed or reduced
+    incorrectly: a kernel depositing the right total charge into the wrong
+    cells satisfies the conservation identity above but fails here. Every
+    B-spline order is a separately compiled kernel sizing its shared-memory
+    buffer from its own stencil width, so all three are covered.
+
+    Runs one deposition per invocation and caches it; whichever of the
+    ``shared`` pair runs second makes the comparison.
     """
-    n_per_dim = 4
-    weight = 1.0e6
+    # the autouse lifecycle fixture resets this flag after the test
+    pywarpx.warpx.do_shared_mem_charge_deposition = shared
+    sim = make_sim(particle_shape=particle_shape)
+    sim.add_species(
+        picmi.Species(particle_type="electron", name="electrons"), layout=None
+    )
+    sim.initialize_inputs()
+    sim.initialize_warpx()
 
-    def deposited_rho(shared):
-        pywarpx.warpx.do_shared_mem_charge_deposition = shared
-        sim = make_sim(particle_shape=particle_shape)
-        sim.add_species(
-            picmi.Species(particle_type="electron", name="electrons"), layout=None
-        )
-        sim.initialize_inputs()
-        sim.initialize_warpx()
+    add_uniform_particles(sim, "electrons", n_per_dim=4, weight=1.0e6)
 
-        add_uniform_particles(sim, "electrons", n_per_dim=n_per_dim, weight=weight)
+    electrons = sim.particles.get("electrons")
+    rho = np.asarray(electrons.get_charge_density(lev=0, local=False)[:])
 
-        electrons = sim.particles.get("electrons")
-        rho = np.asarray(electrons.get_charge_density(lev=0, local=False)[:])
-        pywarpx.warpx.finalize()
-        return rho
+    # a deposition that produced nothing would otherwise compare equal to
+    # another empty one, so check this case stands on its own first
+    assert np.isfinite(rho).all()
+    assert rho.min() < 0.0, "electrons must deposit negative charge somewhere"
 
-    rho_direct = deposited_rho(False)
-    rho_shared = deposited_rho(True)
+    _DEPOSITED_RHO[(particle_shape, shared)] = rho
 
-    assert rho_shared.shape == rho_direct.shape
+    counterpart = _DEPOSITED_RHO.get((particle_shape, not shared))
+    if counterpart is None:
+        return  # the other half of the pair has not run yet
+
+    direct = _DEPOSITED_RHO[(particle_shape, False)]
+    shared_rho = _DEPOSITED_RHO[(particle_shape, True)]
+    assert shared_rho.shape == direct.shape
     np.testing.assert_allclose(
-        rho_shared,
-        rho_direct,
+        shared_rho,
+        direct,
         rtol=rtol(),
-        atol=np.abs(rho_direct).max() * rtol(),
+        atol=np.abs(direct).max() * rtol(),
     )
 
 
@@ -136,7 +160,7 @@ def test_charge_deposition_is_negative_for_electrons():
     add_uniform_particles(sim, "electrons")
 
     electrons = sim.particles.get("electrons")
-    rho = electrons.get_charge_density(lev=0, local=False, finalize=True)
+    rho = electrons.get_charge_density(lev=0, local=False)
 
     assert rho.max(0) <= 0.0
     assert rho.min(0) < 0.0

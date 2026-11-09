@@ -128,3 +128,10 @@ def warpx_lifecycle(tmp_path, monkeypatch):
     yield
 
     pywarpx.warpx.finalize()
+    # These are process-wide statics that tests set directly; reset them so a
+    # test enabling shared-mem deposition cannot leak the flag into later tests
+    # (observed on CUDA: leaked flag made an unrelated conservation test run
+    # the shared-mem kernel and fail). finalize() removes the Python-side
+    # attribute, so set unconditionally rather than guarding on hasattr.
+    for flag in ("do_shared_mem_charge_deposition", "do_shared_mem_current_deposition"):
+        setattr(pywarpx.warpx, flag, False)
