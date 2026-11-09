@@ -328,7 +328,7 @@ void doChargeDepositionSharedShapeN (const GetParticlePosition<PIdx>& GetPositio
           vs[i] = 0.0;
         }
 #if defined(AMREX_USE_SYCL)
-        handler.sharedBarrier();
+        handler.syncThreads();
 #else
         __syncthreads();
 #endif
@@ -462,7 +462,7 @@ void doChargeDepositionSharedShapeN (const GetParticlePosition<PIdx>& GetPositio
         }
 
 #if defined(AMREX_USE_SYCL)
-          handler.sharedBarrier();
+          handler.syncThreads();
           addLocalToGlobal(tbx, rho_arr, buf, handler);
 #elif defined(AMREX_USE_CUDA) || defined(AMREX_USE_HIP)
           __syncthreads();

@@ -648,7 +648,7 @@ void doDepositionSharedShapeN (const GetParticlePosition<PIdx>& GetPosition,
             vs[i] = 0.0;
         }
 #if defined(AMREX_USE_SYCL)
-        handler.sharedBarrier();
+        handler.syncThreads();
 #else
         __syncthreads();
 #endif
@@ -661,7 +661,7 @@ void doDepositionSharedShapeN (const GetParticlePosition<PIdx>& GetPosition,
         }
 
 #if defined(AMREX_USE_SYCL)
-        handler.sharedBarrier();
+        handler.syncThreads();
         addLocalToGlobal(tbox_x, jx_arr, jx_buff, handler);
 #else
         __syncthreads();
@@ -672,7 +672,7 @@ void doDepositionSharedShapeN (const GetParticlePosition<PIdx>& GetPosition,
         }
 
 #if defined(AMREX_USE_SYCL)
-        handler.sharedBarrier();
+        handler.syncThreads();
 #else
         __syncthreads();
 #endif
@@ -685,7 +685,7 @@ void doDepositionSharedShapeN (const GetParticlePosition<PIdx>& GetPosition,
         }
 
 #if defined(AMREX_USE_SYCL)
-        handler.sharedBarrier();
+        handler.syncThreads();
         addLocalToGlobal(tbox_y, jy_arr, jy_buff, handler);
 #else
         __syncthreads();
@@ -696,7 +696,7 @@ void doDepositionSharedShapeN (const GetParticlePosition<PIdx>& GetPosition,
         }
 
 #if defined(AMREX_USE_SYCL)
-        handler.sharedBarrier();
+        handler.syncThreads();
 #else
         __syncthreads();
 #endif
@@ -709,7 +709,7 @@ void doDepositionSharedShapeN (const GetParticlePosition<PIdx>& GetPosition,
         }
 
 #if defined(AMREX_USE_SYCL)
-        handler.sharedBarrier();
+        handler.syncThreads();
         addLocalToGlobal(tbox_z, jz_arr, jz_buff, handler);
 #else
         __syncthreads();
